@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo \"static build needs no npm install\"",
+  "buildCommand": "node scripts/build.mjs",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/index.py": { "maxDuration": 30, "includeFiles": "app/**" }
+  },
+  "rewrites": [{ "source": "/api/(.*)", "destination": "/api/index" }]
+}

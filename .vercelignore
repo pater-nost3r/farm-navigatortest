@@ -1,0 +1,10 @@
+# Never upload secrets or local environments
+.env
+.venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+dist/
+# Tests are not needed at runtime
+app/tests/
+tests/

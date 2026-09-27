@@ -1,0 +1,2559 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farm Navigator</title>
+<meta name="description" content="An educational farming strategy game on real historical NASA POWER weather data.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%231E4D35%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2710%27 fill=%27none%27 stroke=%27%239FD39A%27 stroke-width=%272.4%27/%3E%3Cpath d=%27M16 8l3 8-3 8-3-8z%27 fill=%27%23FFD35C%27/%3E%3C/svg%3E">
+<meta name="theme-color" content="#FBF6EC">
+<script id="prefs-core">
+/* =========================================================
+   USER PREFERENCES (language + theme)
+   Runs before the stylesheet and the body, so the right theme
+   and <html lang> are in place before the first paint.
+   Single source of truth: window.FarmPrefs.
+   ========================================================= */
+(function(){
+  var KEYS = { language:'farm-navigator.language', theme:'farm-navigator.theme' };
+  var LANGUAGE_PREFERENCES = ['system','en','ru'];
+  var THEME_PREFERENCES = ['system','light','dark'];
+  var THEME_COLORS = { light:'#FBF6EC', dark:'#101713' };
+
+  function storage(){ try{ return window.localStorage || null; }catch(e){ return null; } }
+  function readPreference(key, allowed){
+    var s = storage(); if(!s) return 'system';
+    try{
+      var v = s.getItem(key);
+      if(v === null) return 'system';
+      if(allowed.indexOf(v) >= 0) return v;
+      s.removeItem(key); // corrupted or unknown value
+    }catch(e){}
+    return 'system';
+  }
+  function writePreference(key, v){ var s = storage(); if(!s) return; try{ s.setItem(key, v); }catch(e){} }
+
+  // Primary system language: navigator.languages[0], then navigator.language.
+  // "ru", "ru-RU", "ru-KZ"… → Russian; everything else → English.
+  function systemLanguage(){
+    var n = window.navigator || {};
+    var tag = (n.languages && n.languages.length ? n.languages[0] : n.language) || 'en';
+    return /^ru(?:[-_]|$)/i.test(String(tag)) ? 'ru' : 'en';
+  }
+  var mq = null;
+  try{ mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null; }catch(e){}
+  function systemTheme(){ return mq && mq.matches ? 'dark' : 'light'; }
+
+  var state = {
+    languagePreference: readPreference(KEYS.language, LANGUAGE_PREFERENCES),
+    themePreference: readPreference(KEYS.theme, THEME_PREFERENCES),
+    resolvedLanguage: 'en',
+    resolvedTheme: 'light'
+  };
+  var listeners = [];
+
+  function resolve(){
+    state.resolvedLanguage = state.languagePreference === 'system' ? systemLanguage() : state.languagePreference;
+    state.resolvedTheme = state.themePreference === 'system' ? systemTheme() : state.themePreference;
+  }
+  function apply(){
+    var root = document.documentElement;
+    root.setAttribute('lang', state.resolvedLanguage);
+    root.setAttribute('data-theme', state.resolvedTheme);
+    if(root.style) root.style.colorScheme = state.resolvedTheme;
+    var meta = document.querySelector && document.querySelector('meta[name="theme-color"]');
+    if(meta) meta.setAttribute('content', THEME_COLORS[state.resolvedTheme]);
+  }
+  function snapshot(){
+    return { languagePreference:state.languagePreference, resolvedLanguage:state.resolvedLanguage,
+             themePreference:state.themePreference, resolvedTheme:state.resolvedTheme };
+  }
+  function commit(){
+    var prev = snapshot();
+    resolve(); apply();
+    var next = snapshot();
+    var change = {
+      language: prev.languagePreference !== next.languagePreference || prev.resolvedLanguage !== next.resolvedLanguage,
+      theme: prev.themePreference !== next.themePreference || prev.resolvedTheme !== next.resolvedTheme
+    };
+    if(change.language || change.theme) listeners.slice().forEach(function(fn){ try{ fn(next, change); }catch(e){ console.error(e); } });
+  }
+
+  function setLanguagePreference(v){
+    if(LANGUAGE_PREFERENCES.indexOf(v) < 0) return;
+    state.languagePreference = v; writePreference(KEYS.language, v); commit();
+  }
+  function setThemePreference(v){
+    if(THEME_PREFERENCES.indexOf(v) < 0) return;
+    state.themePreference = v; writePreference(KEYS.theme, v); commit();
+  }
+
+  // Live system changes (only matter while the preference is "system").
+  function onSystemTheme(){ if(state.themePreference === 'system') commit(); }
+  if(mq){ if(mq.addEventListener) mq.addEventListener('change', onSystemTheme); else if(mq.addListener) mq.addListener(onSystemTheme); }
+  if(window.addEventListener){
+    window.addEventListener('languagechange', function(){ if(state.languagePreference === 'system') commit(); });
+    // Keep several open tabs in sync.
+    window.addEventListener('storage', function(e){
+      if(e.key === KEYS.language || e.key === null) state.languagePreference = readPreference(KEYS.language, LANGUAGE_PREFERENCES);
+      if(e.key === KEYS.theme || e.key === null) state.themePreference = readPreference(KEYS.theme, THEME_PREFERENCES);
+      commit();
+    });
+  }
+
+  resolve(); apply();
+
+  window.FarmPrefs = {
+    LANGUAGE_PREFERENCES: LANGUAGE_PREFERENCES.slice(),
+    THEME_PREFERENCES: THEME_PREFERENCES.slice(),
+    STORAGE_KEYS: { language:KEYS.language, theme:KEYS.theme },
+    get: snapshot,
+    systemLanguage: systemLanguage,
+    systemTheme: systemTheme,
+    setLanguagePreference: setLanguagePreference,
+    setThemePreference: setThemePreference,
+    subscribe: function(fn){ listeners.push(fn); return function(){ listeners = listeners.filter(function(f){ return f !== fn; }); }; }
+  };
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --green-900:#173B2A; --green-800:#1E4D35; --green-700:#23603F; --green-500:#3E9B4F; --green-300:#9FD39A; --green-100:#E4F1DE;
+  --soil-800:#553620; --soil-700:#6B4428; --soil-500:#8C5E3C; --soil-300:#C9A27C;
+  --beige-50:#FFFBF3; --beige-100:#FBF6EC; --beige-200:#F3E8D2; --beige-300:#E6D4B2; --beige-400:#D4BC92;
+  --nasa-900:#0B3D91; --nasa-700:#1552B8; --nasa-500:#1E6FD9; --nasa-100:#E3EEFB;
+  --red-600:#C0392B; --red-100:#FBE4DF; --amber-500:#E09A1B; --amber-100:#FCEFD3; --purple-500:#7A5AA6;
+  --ink:#1D2A22; --muted:#56655A; --white:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:11px;
+  --chunk:0 4px 0 var(--beige-300);
+  --font-display:"Fredoka","Nunito",system-ui,sans-serif;
+  --font-body:"Nunito",system-ui,-apple-system,"Segoe UI",sans-serif;
+
+  /* Semantic theme tokens. Components use these; the dark theme only redefines tokens. */
+  --bg:var(--beige-100); --bg-dot:var(--beige-200);
+  --surface:#fff; --surface-hover:#fff;
+  --heading:var(--green-900);
+  --green-text:var(--green-700); --green-ink:var(--green-900);
+  --nasa-text:var(--nasa-700); --nasa-ink:var(--nasa-900); --nasa-200:#B8CDEB;
+  --red-text:var(--red-600); --red-ink:#6E1F16;
+  --amber-text:#95600A; --amber-ink:#5C3B03; --amber-line:#EACB86;
+  --soil-text:var(--soil-700); --soil-100:#F6EEE3;
+  --purple-100:#F1ECF8;
+  --tol-bg:#FFF1CC; --tol-text:#8A5A00; --leg-bg:#E2F4DA;
+  --btn-dis-bg:#A9C7AC; --btn-dis-sh:#8DAE90;
+  --glass:rgba(255,255,255,.92); --glass-mid:rgba(255,255,255,.85); --glass-soft:rgba(255,255,255,.7);
+  --arrow:var(--beige-400);
+  --overlay:rgba(23,40,30,.45);
+  --pop-shadow:rgba(0,0,0,.18);
+  --tip-bg:var(--ink); --tip-text:#fff;
+  color-scheme:light;
+}
+/* Dark theme: dark green-grey background, slightly lighter surfaces,
+   light text, grey-green secondary text, visible borders. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --beige-50:#1C2822; --beige-100:#131C17; --beige-200:#27352D; --beige-300:#35473C; --beige-400:#0A0F0C;
+  --green-100:#1C3525; --nasa-100:#16294A; --red-600:#D9544A; --red-100:#3A1D1A; --amber-100:#352913;
+  --ink:#E4EEE7; --muted:#A3B5A9;
+  --chunk:0 4px 0 #0A0F0C;
+  --bg:#101713; --bg-dot:#1B2620;
+  --surface:#17211B; --surface-hover:#1F2C25;
+  --heading:#BFE3C4;
+  --green-text:#8FD49A; --green-ink:#CDEFD2;
+  --nasa-text:#8DB8F5; --nasa-ink:#C4DAFB; --nasa-200:#0C1830;
+  --red-text:#F29A8F; --red-ink:#F6C1B9;
+  --amber-text:#EDC06B; --amber-ink:#F4D79E; --amber-line:#6B5220;
+  --soil-text:#DDB892; --soil-100:#2F241A;
+  --purple-100:#272036;
+  --tol-bg:#3A2F12; --tol-text:#EFCB75; --leg-bg:#1C3525;
+  --btn-dis-bg:#2E4735; --btn-dis-sh:#1E3024;
+  --glass:rgba(23,33,27,.9); --glass-mid:rgba(23,33,27,.85); --glass-soft:rgba(23,33,27,.72);
+  --arrow:#4A5E52;
+  --overlay:rgba(5,10,7,.62);
+  --pop-shadow:rgba(0,0,0,.5);
+  --tip-bg:#E4EEE7; --tip-text:#101713;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:var(--font-body); color:var(--ink); background:var(--bg);
+  background-image:radial-gradient(var(--bg-dot) 1.2px, transparent 1.2px); background-size:22px 22px;
+  min-height:100vh; -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;cursor:pointer}
+button:disabled{cursor:not-allowed}
+:focus-visible{outline:3px solid var(--nasa-500);outline-offset:2px}
+h1,h2,h3,h4{font-family:var(--font-display);margin:0;letter-spacing:.2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.icon{width:1.2em;height:1.2em;flex:none;display:inline-block;vertical-align:-.2em}
+
+/* ---------- Buttons ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border:0;border-radius:14px;padding:12px 18px;font-weight:800;font-size:15px;
+  background:var(--surface);color:var(--ink);box-shadow:0 4px 0 var(--beige-400), inset 0 0 0 2px var(--beige-300);
+  transition:transform .08s, box-shadow .08s, background .2s;
+}
+.btn:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 var(--beige-400), inset 0 0 0 2px var(--beige-300)}
+.btn-primary{background:var(--green-500);color:#fff;box-shadow:0 4px 0 var(--green-700)}
+.btn-primary:hover:not(:disabled){background:#46AA58}
+.btn-primary:active:not(:disabled){box-shadow:0 1px 0 var(--green-700)}
+.btn-primary:disabled{background:var(--btn-dis-bg);box-shadow:0 4px 0 var(--btn-dis-sh)}
+.btn-nasa{background:var(--nasa-500);color:#fff;box-shadow:0 4px 0 var(--nasa-900)}
+.btn-nasa:active:not(:disabled){box-shadow:0 1px 0 var(--nasa-900)}
+.btn-lg{padding:16px 24px;font-size:17px;border-radius:16px;font-family:var(--font-display);font-weight:600;letter-spacing:.3px}
+.btn-icon{width:46px;height:46px;padding:0;border-radius:14px}
+.btn-ghost{background:transparent;box-shadow:none;color:var(--muted)}
+.btn-ghost:active:not(:disabled){box-shadow:none}
+
+/* ---------- Screens ---------- */
+.screen{display:none}
+.screen.active{display:block}
+.center-screen{min-height:100vh;display:none;align-items:center;justify-content:center;padding:24px 16px}
+.center-screen.active{display:flex}
+
+/* ---------- Loading / error ---------- */
+.boot{width:min(460px,100%);text-align:center}
+.boot h1{font-size:30px;color:var(--heading);margin-top:18px}
+.boot p{color:var(--muted);font-size:16px;line-height:1.5;margin:8px 0 0}
+.orbit{position:relative;width:180px;height:180px;margin:0 auto}
+.planet{position:absolute;inset:38px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,#7CC6F2 0,#2F86D6 45%,#0B3D91 100%);
+  box-shadow:inset -12px -10px 0 rgba(0,0,0,.18), 0 10px 30px rgba(11,61,145,.25);overflow:hidden}
+.planet::before,.planet::after{content:"";position:absolute;background:#5DB36A;border-radius:48% 52% 60% 40%}
+.planet::before{width:46px;height:34px;left:18px;top:26px;transform:rotate(-18deg)}
+.planet::after{width:30px;height:40px;right:16px;bottom:18px;background:#4E9E5B}
+.orbit-ring{position:absolute;inset:6px;border:2px dashed rgba(30,111,217,.35);border-radius:50%}
+.sat{position:absolute;inset:0;animation:spin 3.2s linear infinite}
+.sat svg{position:absolute;top:-6px;left:50%;margin-left:-20px;width:40px;height:40px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.boot-steps{list-style:none;padding:0;margin:26px 0 0;text-align:left;display:grid;gap:8px}
+.boot-steps li{display:flex;align-items:center;gap:12px;background:var(--surface);border-radius:14px;padding:11px 14px;box-shadow:var(--chunk);font-weight:700;color:var(--muted);transition:color .3s}
+.boot-steps li .dot{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--beige-200);color:#fff;flex:none;transition:background .3s}
+.boot-steps li.done{color:var(--ink)}
+.boot-steps li.done .dot{background:var(--green-500)}
+.boot-steps li.now .dot{background:var(--nasa-500);animation:pulse 1s ease-in-out infinite}
+.boot-steps li small{margin-left:auto;font-weight:700;color:var(--nasa-text);font-size:12px;letter-spacing:.3px}
+@keyframes pulse{50%{transform:scale(.82)}}
+.progress{height:14px;border-radius:99px;background:var(--beige-200);overflow:hidden;margin-top:18px;box-shadow:inset 0 2px 0 rgba(0,0,0,.05)}
+.progress>i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--nasa-500),var(--green-500));transition:width .4s}
+
+.err .planet{filter:grayscale(.6) brightness(.9)}
+.err .sat{animation:none;transform:rotate(38deg)}
+.err-link{position:absolute;left:50%;top:14px;width:2px;height:36px;margin-left:30px;border-left:3px dashed var(--red-600);transform:rotate(30deg)}
+.err-badge{position:absolute;right:6px;top:6px;width:42px;height:42px;border-radius:50%;background:var(--red-600);color:#fff;display:grid;place-items:center;box-shadow:0 3px 0 #8E2A1F;font-family:var(--font-display);font-size:24px;font-weight:700}
+.err-code{display:inline-block;margin-top:14px;font-size:13px;font-weight:800;color:var(--red-text);background:var(--red-100);padding:6px 12px;border-radius:99px}
+.boot-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:24px}
+
+/* ---------- Game layout ---------- */
+.game{
+  display:grid;gap:16px;padding:16px;max-width:1480px;margin:0 auto;min-height:100vh;
+  grid-template-columns:300px minmax(0,1fr) 310px;
+  grid-template-rows:auto 1fr auto;
+  grid-template-areas:"top top top" "left stage right" "bottom bottom bottom";
+}
+.card{background:var(--surface);border-radius:var(--r-lg);box-shadow:var(--chunk), 0 0 0 2px var(--beige-200)}
+
+/* top bar */
+.topbar{grid-area:top;display:flex;align-items:center;gap:14px;padding:10px 12px 10px 16px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;margin-right:4px;min-width:0}
+.brand-mark{width:44px;height:44px;border-radius:14px;background:var(--green-800);display:grid;place-items:center;box-shadow:0 3px 0 var(--green-900);flex:none}
+.brand h1{font-size:21px;color:var(--heading);line-height:1;white-space:nowrap}
+.brand span{display:block;font-size:11.5px;font-weight:800;color:var(--nasa-text);letter-spacing:.8px;text-transform:uppercase;margin-top:3px}
+.season-pill{display:flex;align-items:center;gap:12px;background:var(--green-900);color:#fff;border-radius:16px;padding:8px 14px 8px 10px}
+.season-emoji{width:36px;height:36px;border-radius:11px;background:rgba(255,255,255,.12);display:grid;place-items:center}
+.season-pill b{font-family:var(--font-display);font-size:18px;font-weight:600;display:block;line-height:1.1}
+.season-pill small{font-size:12px;opacity:.8;font-weight:700}
+.season-dots{display:flex;gap:5px;margin-left:4px}
+.season-dots i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.25)}
+.season-dots i.done{background:var(--green-300)}
+.season-dots i.now{background:#FFD35C;box-shadow:0 0 0 3px rgba(255,211,92,.3)}
+.mission{flex:1;min-width:220px;display:flex;align-items:center;gap:12px;background:var(--amber-100);border-radius:16px;padding:8px 14px;border:2px dashed var(--amber-line)}
+.mission-flag{width:36px;height:36px;border-radius:11px;background:var(--amber-500);color:#fff;display:grid;place-items:center;flex:none}
+.mission small{display:block;font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--amber-text)}
+.mission b{font-size:15px;font-weight:800;line-height:1.25}
+.top-actions{display:flex;gap:8px;margin-left:auto;align-items:center}
+
+/* side panels */
+.panel{padding:16px;display:flex;flex-direction:column;gap:16px;align-self:start}
+.left{grid-area:left}
+.right{grid-area:right}
+.panel-title{display:flex;align-items:center;gap:10px}
+.panel-title .badge-ic{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;color:#fff;flex:none}
+.panel-title h2{font-size:19px}
+.panel-title p{margin:0;font-size:12.5px;color:var(--muted);font-weight:700}
+.group-label{font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.group-label em{font-style:normal;color:var(--nasa-text);text-transform:none;letter-spacing:0;font-size:12px;text-align:right}
+
+.crop-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.crop{border:0;background:var(--beige-50);border-radius:14px;padding:10px 8px 9px;text-align:center;box-shadow:inset 0 0 0 2px var(--beige-200), 0 3px 0 var(--beige-200);transition:box-shadow .15s, background .15s, transform .1s;position:relative}
+.crop:hover:not(:disabled){background:var(--surface-hover)}
+.crop[aria-pressed="true"]{background:var(--green-100);box-shadow:inset 0 0 0 3px var(--green-500), 0 3px 0 var(--green-700)}
+.crop[aria-pressed="true"]::after{content:"";position:absolute;top:7px;right:7px;width:18px;height:18px;border-radius:50%;background:var(--green-500) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/12px no-repeat}
+.crop svg.art{width:46px;height:46px;display:block;margin:0 auto 2px}
+.crop b{display:block;font-size:14.5px;font-weight:800}
+.crop .meta{display:flex;justify-content:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--muted);margin-top:3px;align-items:center}
+.drops{display:inline-flex;gap:1px;color:var(--nasa-500)}
+.drops .off{color:var(--beige-300)}
+.crop .tag{display:inline-block;margin-top:5px;font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:99px;background:var(--beige-200);color:var(--soil-text)}
+.crop .tag.tol{background:var(--tol-bg);color:var(--tol-text)}
+.crop .tag.leg{background:var(--leg-bg);color:var(--green-text)}
+
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:var(--nasa-100);padding:5px;border-radius:14px}
+.seg button{border:0;background:transparent;border-radius:10px;padding:8px 2px 7px;font-weight:800;font-size:12.5px;color:var(--nasa-ink);display:flex;flex-direction:column;align-items:center;gap:3px;transition:background .15s}
+.seg button[aria-pressed="true"]{background:var(--surface);box-shadow:0 2px 0 var(--nasa-200), inset 0 0 0 2px var(--nasa-500)}
+.seg button:disabled{opacity:.4}
+.seg .drops{font-size:10px}
+.hint{font-size:12.5px;color:var(--muted);font-weight:700;margin:8px 2px 0;line-height:1.4}
+.hint b{color:var(--ink)}
+
+.fert-list{display:grid;gap:6px}
+.fert{border:0;display:flex;align-items:center;gap:10px;background:var(--beige-50);border-radius:12px;padding:8px 10px;text-align:left;box-shadow:inset 0 0 0 2px var(--beige-200)}
+.fert[aria-pressed="true"]{background:var(--soil-100);box-shadow:inset 0 0 0 3px var(--soil-500)}
+.fert .fic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:none}
+.fert b{display:block;font-size:13.5px;font-weight:800}
+.fert small{display:block;font-size:11.5px;color:var(--muted);font-weight:700}
+.fert .cost{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--soil-text);white-space:nowrap}
+
+.plan-sum{background:var(--beige-100);border-radius:14px;padding:10px 12px;display:grid;gap:4px;font-size:13px;font-weight:700}
+.plan-sum div{display:flex;justify-content:space-between;gap:8px}
+.plan-sum .total{border-top:2px dashed var(--beige-300);padding-top:6px;margin-top:2px;font-size:15px;font-weight:800}
+.warn-line{font-size:12.5px;color:var(--red-text);font-weight:800;display:none}
+.warn-line.show{display:block}
+.confirm{width:100%}
+
+/* NASA data */
+.nasa-head{background:linear-gradient(135deg,var(--nasa-900),var(--nasa-700));color:#fff;border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:10px;position:relative;overflow:hidden}
+.nasa-head::after{content:"";position:absolute;right:-20px;top:-30px;width:110px;height:110px;border-radius:50%;border:2px dashed rgba(255,255,255,.2)}
+.nasa-head h2{font-size:19px}
+.nasa-head p{margin:0;font-size:12px;font-weight:700;opacity:.85}
+.data-list{display:grid;gap:10px}
+.datum{background:var(--beige-50);border-radius:14px;padding:11px 12px;box-shadow:inset 0 0 0 2px var(--beige-200)}
+.datum-top{display:flex;align-items:center;gap:8px}
+.datum-top .dic{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;color:#fff}
+.datum-top h3{font-family:var(--font-body);font-size:13.5px;font-weight:800}
+.chip{margin-left:auto;font-size:11px;font-weight:800;padding:3px 8px;border-radius:99px;white-space:nowrap}
+.chip.hot,.chip.dry{background:var(--red-100);color:var(--red-text)}
+.chip.warm{background:var(--amber-100);color:var(--amber-text)}
+.chip.ok{background:var(--green-100);color:var(--green-text)}
+.chip.wet,.chip.cool{background:var(--nasa-100);color:var(--nasa-text)}
+.datum-val{display:flex;align-items:baseline;gap:6px;margin:6px 0 2px}
+.datum-val b{font-family:var(--font-display);font-size:30px;font-weight:600;line-height:1}
+.datum-val span{font-size:13px;font-weight:800;color:var(--muted)}
+.datum-val em{margin-left:auto;font-style:normal;font-size:12px;font-weight:800;color:var(--muted);text-align:right}
+.gauge{position:relative;height:10px;border-radius:99px;margin:8px 0 4px}
+.gauge .mk{position:absolute;top:-4px;width:6px;height:18px;border-radius:4px;background:var(--ink);box-shadow:0 0 0 2px var(--surface);transform:translateX(-50%);transition:left .6s cubic-bezier(.3,1.4,.5,1)}
+.gauge .avg{position:absolute;top:-3px;width:2px;height:16px;background:repeating-linear-gradient(var(--ink) 0 2px,transparent 2px 4px);opacity:.55}
+.gauge-labels{display:flex;justify-content:space-between;font-size:10.5px;font-weight:800;color:var(--muted)}
+.src{font-size:11px;font-weight:800;color:var(--nasa-text);margin-top:6px;display:flex;align-items:center;gap:5px}
+.src::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--nasa-500);flex:none}
+.insight{background:var(--nasa-100);border-radius:14px;padding:11px 12px;font-size:13px;line-height:1.45;font-weight:700;color:var(--nasa-ink)}
+.insight b{display:flex;align-items:center;gap:6px;font-size:12px;letter-spacing:.7px;text-transform:uppercase;margin-bottom:3px}
+.obs{font-size:12px;font-weight:700;color:var(--muted);line-height:1.45;border-top:2px dashed var(--beige-200);padding-top:10px}
+.obs strong{color:var(--ink)}
+
+/* ---------- Stage / field ---------- */
+.stage{grid-area:stage;position:relative;overflow:hidden;min-height:470px;display:flex;flex-direction:column;
+  background:linear-gradient(180deg,var(--sky-top) 0%,var(--sky-bot) 58%);transition:background 1s;border-radius:var(--r-lg)}
+.stage[data-weather="showers"]{--sky-top:#BFE1F5;--sky-bot:#EEF6E6}
+.stage[data-weather="heat"]{--sky-top:#FBD98A;--sky-bot:#FBF0D6}
+.stage[data-weather="rain"]{--sky-top:#9FB3C6;--sky-bot:#E3E9EA}
+.stage[data-weather="clear"]{--sky-top:#A9DCF7;--sky-bot:#F3F8E8}
+.stage[data-weather="cloudy"]{--sky-top:#B9BFC4;--sky-bot:#ECEBE4}
+/* Dark theme: dusk skies, the field itself keeps its daylight colors so it stays readable */
+[data-theme="dark"] .stage[data-weather="showers"]{--sky-top:#2F5269;--sky-bot:#1F3027}
+[data-theme="dark"] .stage[data-weather="heat"]{--sky-top:#6E5125;--sky-bot:#2A2A1C}
+[data-theme="dark"] .stage[data-weather="rain"]{--sky-top:#2C3A48;--sky-bot:#1C2823}
+[data-theme="dark"] .stage[data-weather="clear"]{--sky-top:#2C5670;--sky-bot:#20322A}
+[data-theme="dark"] .stage[data-weather="cloudy"]{--sky-top:#3A4146;--sky-bot:#222A25}
+.stage-bar{position:relative;z-index:4;display:flex;align-items:flex-start;gap:8px;padding:14px;flex-wrap:wrap}
+.cond{display:inline-flex;align-items:center;gap:10px;background:var(--glass);backdrop-filter:blur(6px);border-radius:16px;padding:7px 14px 7px 7px;box-shadow:0 3px 0 rgba(0,0,0,.08)}
+.cond .cic{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;color:#fff;transition:background .6s}
+.cond small{display:block;font-size:11px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--muted)}
+.cond b{font-family:var(--font-display);font-size:18px;font-weight:600;line-height:1.1}
+.wx{display:inline-flex;align-items:center;gap:7px;background:var(--glass-soft);border-radius:99px;padding:8px 12px;font-weight:800;font-size:13px}
+.view-toggle{margin-left:auto;display:inline-flex;background:var(--glass-mid);border-radius:14px;padding:4px;gap:2px;box-shadow:0 3px 0 rgba(0,0,0,.08)}
+.view-toggle button{border:0;background:transparent;border-radius:10px;padding:7px 11px;font-weight:800;font-size:12.5px;display:flex;align-items:center;gap:6px;color:var(--muted)}
+.view-toggle button[aria-pressed="true"]{background:var(--green-900);color:#fff}
+.view-toggle button.sat-btn[aria-pressed="true"]{background:var(--nasa-700)}
+.field-wrap{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:0 10px 10px;z-index:2}
+.fieldsvg{width:100%;max-width:760px;height:auto;display:block;overflow:visible}
+
+/* field state palettes */
+.stage{--leaf:#6DBF6A;--leaf-dark:#3F8F48;--head:#CFE39A;--head2:#B8D98A;--soil:#7A5234;--soil-dark:#5E3D25;--soil-line:#6A4629;--grass:#8CCB6E;--grass-side:#5E9A4A;--grow:.38;--tilt:0deg;--puddle:0;--cracks:0;--spark:0}
+.stage[data-state="healthy"]{--leaf:#3FA24F;--leaf-dark:#277A38;--head:#D9BE52;--head2:#B8533A;--grow:1}
+.stage[data-state="drought"]{--leaf:#C2A650;--leaf-dark:#977A36;--head:#CDAE72;--head2:#9F6F4A;--soil:#B28C60;--soil-dark:#977149;--soil-line:#A07A4F;--grass:#C9BE78;--grass-side:#A39753;--grow:.74;--tilt:-9deg;--cracks:1}
+.stage[data-state="overwater"]{--leaf:#9DBB5E;--leaf-dark:#6F8E3E;--head:#C6C27A;--head2:#9E7055;--soil:#4B3222;--soil-dark:#36241A;--soil-line:#3E2A1C;--grass:#6FAF62;--grass-side:#4F8746;--grow:.82;--tilt:5deg;--puddle:.9}
+.stage[data-state="lownutrients"]{--leaf:#C9CC62;--leaf-dark:#8E77A6;--head:#D2C98A;--head2:#A48369;--soil:#9D7A5A;--soil-dark:#806043;--soil-line:#8C6A4C;--grow:.6}
+.stage[data-state="harvest"]{--leaf:#C9A43A;--leaf-dark:#A07F23;--head:#F1C54B;--head2:#C45A2E;--grow:1.06;--spark:1}
+.stage[data-state="failed"]{--leaf:#9A8F7C;--leaf-dark:#72695B;--head:#8B8171;--head2:#7A6A5E;--soil:#9E8669;--soil-dark:#836D53;--soil-line:#8E775C;--grass:#AEAA84;--grass-side:#8B875F;--grow:.5;--tilt:-14deg;--cracks:.6}
+
+.fieldsvg .grass{fill:var(--grass)}
+.fieldsvg .grass-side{fill:var(--grass-side)}
+.fieldsvg .tile{fill:var(--soil);stroke:var(--soil-dark);stroke-width:1.2}
+.fieldsvg .furrow{stroke:var(--soil-line);stroke-width:2.2;stroke-linecap:round;fill:none}
+.fieldsvg .lf{fill:var(--leaf)}
+.fieldsvg .ld{fill:var(--leaf-dark)}
+.fieldsvg .hd{fill:var(--head)}
+.fieldsvg .hd2{fill:var(--head2)}
+.fieldsvg .st{stroke:var(--leaf-dark);fill:none;stroke-width:2;stroke-linecap:round}
+.fieldsvg .puddle{fill:#6FB4E8;opacity:var(--puddle)}
+.fieldsvg .puddle-hl{fill:#D3ECFB;opacity:calc(var(--puddle) * .8)}
+.fieldsvg .crack{stroke:#6E4F31;stroke-width:1.4;fill:none;opacity:var(--cracks);stroke-linecap:round}
+.fieldsvg .spark{fill:#FFE17A;opacity:var(--spark)}
+.fieldsvg .tile,.fieldsvg .furrow,.fieldsvg .lf,.fieldsvg .ld,.fieldsvg .hd,.fieldsvg .hd2,.fieldsvg .st,.fieldsvg .grass,.fieldsvg .grass-side,.fieldsvg .puddle,.fieldsvg .puddle-hl,.fieldsvg .crack,.fieldsvg .spark{transition:fill 1s, stroke 1s, opacity 1s}
+.pl{transform:scale(calc(var(--grow) * var(--j,1))) rotate(var(--tilt));transition:transform 1.1s cubic-bezier(.3,1.3,.5,1)}
+.sway{animation:sway 4s ease-in-out infinite;animation-delay:var(--d,0s)}
+@keyframes sway{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2.5deg)}}
+.stage[data-state="drought"] .sway,.stage[data-state="failed"] .sway{animation:none}
+.spark{animation:twinkle 1.6s ease-in-out infinite;animation-delay:var(--d,0s);transform-box:fill-box;transform-origin:center}
+@keyframes twinkle{50%{transform:scale(.4)}}
+.tank-water{transition:height 1s, y 1s}
+
+/* NDVI view */
+.fieldsvg .ndvi-tile{opacity:0;transition:opacity .6s, fill .8s}
+.stage.ndvi .ndvi-tile{opacity:1}
+.stage.ndvi .plants{opacity:.12}
+.plants{transition:opacity .6s}
+.ndvi-legend{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:5;background:var(--glass);border-radius:14px;padding:8px 12px;display:none;align-items:center;gap:10px;font-size:12px;font-weight:800;box-shadow:0 3px 0 rgba(0,0,0,.08);white-space:nowrap}
+.stage.ndvi .ndvi-legend{display:flex}
+.ndvi-legend i{display:block;width:140px;height:10px;border-radius:99px;background:linear-gradient(90deg,#A6732E,#D9C257,#9CCB5B,#2E8B3E,#0F5A2A)}
+
+/* weather */
+.weather{position:absolute;inset:0;pointer-events:none;z-index:1}
+.sun{position:absolute;top:70px;right:8%;width:70px;height:70px;border-radius:50%;background:radial-gradient(circle at 40% 40%,#FFF1A8,#F9B233 70%);
+  box-shadow:0 0 0 12px rgba(249,178,51,.16),0 0 0 26px rgba(249,178,51,.08);opacity:0;transform:scale(.7);transition:opacity .9s, transform .9s}
+.stage[data-weather="showers"] .sun,.stage[data-weather="clear"] .sun{opacity:1;transform:scale(.85)}
+.stage[data-weather="heat"] .sun{opacity:1;transform:scale(1.25);animation:heatpulse 2.4s ease-in-out infinite}
+@keyframes heatpulse{50%{box-shadow:0 0 0 18px rgba(249,178,51,.22),0 0 0 40px rgba(249,160,51,.1)}}
+.cloud{position:absolute;height:34px;border-radius:40px;background:#fff;opacity:0;transition:opacity .9s, background .9s;animation:drift 26s linear infinite}
+.cloud::before,.cloud::after{content:"";position:absolute;background:inherit;border-radius:50%}
+.cloud::before{width:48%;height:150%;left:14%;bottom:30%}
+.cloud::after{width:36%;height:120%;right:14%;bottom:34%}
+.c1{width:120px;top:76px;left:6%}
+.c2{width:90px;top:120px;left:38%;animation-duration:34s;animation-delay:-12s}
+.c3{width:140px;top:64px;left:62%;animation-duration:30s;animation-delay:-6s}
+@keyframes drift{0%{transform:translateX(-30px)}50%{transform:translateX(40px)}100%{transform:translateX(-30px)}}
+.stage[data-weather="showers"] .c1,.stage[data-weather="showers"] .c3{opacity:.95}
+.stage[data-weather="rain"] .cloud,.stage[data-weather="cloudy"] .cloud{opacity:1;background:#8E9CA8}
+.stage[data-weather="clear"] .c2{opacity:.8}
+[data-theme="dark"] .cloud{background:#C9D4DA}
+[data-theme="dark"] .stage[data-weather="rain"] .cloud,[data-theme="dark"] .stage[data-weather="cloudy"] .cloud{background:#66737D}
+.rain{position:absolute;inset:90px 0 0 0;opacity:0;transition:opacity .9s}
+.rain span{position:absolute;top:-20px;width:2px;height:16px;border-radius:2px;background:linear-gradient(transparent,#4B8FD1);animation:fall linear infinite}
+@keyframes fall{to{transform:translate(-28px,420px)}}
+.stage[data-weather="rain"] .rain{opacity:.85}
+.stage[data-weather="showers"] .rain{opacity:.3}
+.haze{position:absolute;left:0;right:0;bottom:0;height:60%;opacity:0;transition:opacity 1s;
+  background:repeating-linear-gradient(0deg,rgba(255,190,90,.0) 0 14px,rgba(255,200,110,.18) 14px 18px);animation:shimmer 2.6s ease-in-out infinite}
+@keyframes shimmer{50%{transform:translateY(-6px) skewX(2deg)}}
+.stage[data-weather="heat"] .haze{opacity:1}
+
+/* field banner (harvest) */
+.banner{position:absolute;inset:0;z-index:6;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(23,59,42,.18)}
+.banner.show{display:flex}
+.banner-card{background:var(--surface);border-radius:24px;padding:22px 24px;text-align:center;max-width:380px;box-shadow:0 6px 0 var(--beige-300),0 20px 50px rgba(0,0,0,.18);animation:pop .5s cubic-bezier(.3,1.5,.5,1)}
+.banner-card .big-ic{width:74px;height:74px;border-radius:24px;margin:-58px auto 10px;display:grid;place-items:center;color:#fff;box-shadow:0 5px 0 rgba(0,0,0,.18)}
+.banner-card h2{font-size:28px}
+.banner-card p{color:var(--muted);font-weight:700;line-height:1.5;margin:6px 0 16px}
+@keyframes pop{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* ---------- Bottom meters ---------- */
+.meters{grid-area:bottom;display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:12px}
+.meter{display:flex;gap:12px;align-items:center;padding:8px 10px;border-radius:16px;background:var(--beige-50);position:relative}
+.meter .mic{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;color:#fff;flex:none;box-shadow:0 3px 0 rgba(0,0,0,.15)}
+.meter .mic svg{width:24px;height:24px}
+.meter-body{flex:1;min-width:0}
+.meter small{display:block;font-size:11.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meter .val{display:flex;align-items:baseline;gap:4px}
+.meter .val b{font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1.05;white-space:nowrap}
+.meter .val span{font-size:13px;font-weight:800;color:var(--muted)}
+.bar{height:9px;border-radius:99px;background:var(--beige-200);overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;border-radius:99px;transition:width 1s cubic-bezier(.3,1.2,.5,1), background .6s}
+.delta{position:absolute;top:-10px;right:10px;font-family:var(--font-display);font-weight:700;font-size:15px;padding:2px 9px;border-radius:99px;color:#fff;opacity:0;transform:translateY(6px);transition:opacity .3s, transform .3s}
+.delta.show{opacity:1;transform:none}
+.delta.up{background:var(--green-500)}
+.delta.down{background:var(--red-600)}
+
+/* ---------- Modals ---------- */
+.overlay{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;padding:16px;background:var(--overlay);backdrop-filter:blur(3px)}
+.overlay.show{display:flex}
+.modal{background:var(--surface);border-radius:26px;width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 6px 0 var(--beige-300),0 30px 70px rgba(0,0,0,.25);animation:pop .4s cubic-bezier(.3,1.4,.5,1)}
+.report-head{display:flex;align-items:center;gap:14px;padding:20px 22px 14px;border-bottom:2px dashed var(--beige-200)}
+.report-head .ric{width:58px;height:58px;border-radius:18px;display:grid;place-items:center;color:#fff;flex:none;box-shadow:0 4px 0 rgba(0,0,0,.18)}
+.report-head .ric svg{width:30px;height:30px}
+.eyebrow{font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+.report-head h2{font-size:26px;line-height:1.1}
+.field-ndvi{margin-left:auto;text-align:right;background:var(--nasa-100);color:var(--nasa-ink);border-radius:14px;padding:6px 12px;flex:none}
+.field-ndvi small{display:block;font-size:10.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
+.field-ndvi b{font-family:var(--font-display);font-size:22px;font-weight:600}
+.report-body{padding:16px 22px 22px;display:grid;gap:14px}
+.deltas{display:flex;flex-wrap:wrap;gap:6px}
+.dchip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:800;padding:6px 10px;border-radius:99px;background:var(--beige-100)}
+.dchip .n{font-family:var(--font-display);font-weight:700}
+.dchip .n.up{color:var(--green-text)} .dchip .n.down{color:var(--red-text)}
+.chain{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;position:relative}
+.link{border-radius:16px;padding:11px 12px;font-size:13px;line-height:1.45;font-weight:700;position:relative}
+.link h4{font-family:var(--font-body);font-size:11.5px;letter-spacing:.7px;text-transform:uppercase;font-weight:800;display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.link.data{background:var(--nasa-100);color:var(--nasa-ink)}
+.link.dec{background:var(--beige-100)}
+.link.res{background:var(--green-100);color:var(--green-ink)}
+.link.res.bad{background:var(--red-100);color:var(--red-ink)}
+.link.res.warn{background:var(--amber-100);color:var(--amber-ink)}
+.link:not(:last-child)::after{content:"";position:absolute;right:-9px;top:50%;width:10px;height:10px;background:var(--arrow);clip-path:polygon(0 0,100% 50%,0 100%);transform:translateY(-50%);z-index:1}
+.note{display:flex;gap:10px;align-items:flex-start;border-radius:14px;padding:11px 12px;font-size:13.5px;line-height:1.5;font-weight:600}
+.note .nic{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;color:#fff}
+.note b{font-weight:800}
+.note.sci{background:var(--purple-100)}
+.note.sci .nic{background:var(--purple-500)}
+.note.tip{background:var(--amber-100)}
+.note.tip .nic{background:var(--amber-500)}
+.report-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.report-foot small{font-size:12px;font-weight:700;color:var(--muted);max-width:300px;line-height:1.4}
+
+/* tutorial */
+.tut{padding:26px 26px 22px;text-align:center}
+.tut-art{height:170px;border-radius:20px;display:grid;place-items:center;margin-bottom:18px;position:relative;overflow:hidden}
+[data-theme="dark"] .tut-art{filter:brightness(.88)}
+.tut-art svg.big{width:120px;height:120px}
+.tut-art svg.art{width:72px;height:88px}
+.tut-step{font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--nasa-text)}
+.tut h2{font-size:28px;margin:4px 0 8px;color:var(--heading)}
+.tut p{font-size:16px;line-height:1.55;color:var(--muted);font-weight:600;margin:0 auto;max-width:470px}
+.tut-mini{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:14px}
+.tut-mini span{font-size:12.5px;font-weight:800;padding:5px 10px;border-radius:99px;background:var(--beige-100)}
+.tut-nav{display:flex;align-items:center;justify-content:space-between;margin-top:22px;gap:10px}
+.dots{display:flex;gap:7px}
+.dots i{width:10px;height:10px;border-radius:99px;background:var(--beige-300);transition:width .25s, background .25s}
+.dots i.on{width:28px;background:var(--green-500)}
+
+/* pause */
+.pause{padding:28px;text-align:center;width:min(380px,100%)}
+.pause .pic{width:70px;height:70px;border-radius:22px;background:var(--green-900);color:#fff;display:grid;place-items:center;margin:0 auto 12px}
+.pause h2{font-size:30px}
+.pause p{color:var(--muted);font-weight:700;margin:6px 0 18px}
+.pause .stack{display:grid;gap:10px}
+
+/* ---------- Final screen ---------- */
+.final{max-width:1080px;margin:0 auto;padding:24px 16px 40px}
+.final-top{margin-bottom:18px}
+.final-hero{display:grid;grid-template-columns:340px 1fr;gap:18px}
+.score-card{padding:26px 22px;text-align:center;background:linear-gradient(180deg,var(--green-900),var(--green-800));color:#fff;border-radius:26px;box-shadow:0 6px 0 #0F2A1D;position:relative;overflow:hidden}
+.score-card::before{content:"";position:absolute;inset:auto -40px -60px -40px;height:140px;background:repeating-linear-gradient(-30deg,rgba(255,255,255,.05) 0 12px,transparent 12px 24px)}
+.stars{display:flex;justify-content:center;gap:6px;margin-bottom:6px}
+.stars svg{width:52px;height:52px}
+.stars .s2{transform:translateY(-12px);width:64px;height:64px}
+.star-on{fill:#FFD35C;stroke:#C9971B}
+.star-off{fill:rgba(255,255,255,.14);stroke:rgba(255,255,255,.25)}
+.score-num{font-family:var(--font-display);font-size:84px;font-weight:700;line-height:1;margin-top:6px}
+.score-num span{font-size:26px;opacity:.6}
+.rank{display:inline-block;margin-top:8px;background:rgba(255,255,255,.12);border-radius:99px;padding:6px 14px;font-weight:800;font-size:14px}
+.harvest-result{margin-top:16px;border-radius:16px;padding:12px;display:flex;gap:10px;align-items:center;text-align:left;font-weight:700;font-size:13.5px;line-height:1.4}
+.harvest-result.ok{background:rgba(159,211,154,.2)}
+.harvest-result.bad{background:rgba(232,120,100,.22)}
+.harvest-result .hic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none}
+.final-side{display:grid;gap:18px;align-content:start}
+.final-side .card{padding:18px}
+.final h3{font-size:19px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.timeline{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tl{border-radius:16px;padding:12px;background:var(--beige-50);box-shadow:inset 0 0 0 2px var(--beige-200)}
+.tl-top{display:flex;align-items:center;gap:8px}
+.tl-top svg.art{width:38px;height:38px}
+.tl small{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);display:block}
+.tl b{font-size:15px;font-weight:800}
+.tl .state{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-size:12px;font-weight:800;padding:4px 9px;border-radius:99px}
+[data-theme="dark"] .tl .state{color:var(--ink)!important}
+.tl .hp{font-family:var(--font-display);font-size:22px;font-weight:600;margin-left:auto}
+.breakdown{display:grid;gap:10px}
+.brow{display:grid;grid-template-columns:150px 1fr 50px;gap:10px;align-items:center;font-weight:800;font-size:13.5px}
+.brow .bar{margin:0;height:12px}
+.brow span:last-child{text-align:right;font-family:var(--font-display);font-size:17px}
+.final-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.final-grid .card{padding:18px}
+.badges{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.bdg{text-align:center;padding:12px 8px;border-radius:16px;background:var(--beige-50);box-shadow:inset 0 0 0 2px var(--beige-200)}
+.bdg .medal{width:52px;height:52px;border-radius:50%;margin:0 auto 6px;display:grid;place-items:center;color:#fff;box-shadow:0 3px 0 rgba(0,0,0,.18), inset 0 0 0 4px rgba(255,255,255,.35)}
+.bdg b{display:block;font-size:13px;font-weight:800}
+.bdg small{display:block;font-size:11.5px;color:var(--muted);font-weight:700;line-height:1.3;margin-top:2px}
+.bdg.locked{opacity:.5}
+.bdg.locked .medal{background:var(--beige-300)!important;box-shadow:none}
+.lessons{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.lessons li{display:flex;gap:10px;font-size:14px;line-height:1.5;font-weight:600}
+.lessons li .lic{width:28px;height:28px;border-radius:9px;background:var(--nasa-500);color:#fff;display:grid;place-items:center;flex:none}
+.final-actions{display:flex;gap:12px;justify-content:center;margin-top:24px;flex-wrap:wrap}
+.disclaimer{text-align:center;font-size:12.5px;font-weight:700;color:var(--muted);margin-top:16px;line-height:1.5}
+
+/* ---------- Preferences: language + theme ---------- */
+.prefs{display:flex;gap:8px;align-items:center}
+.pref{position:relative}
+.pref-btn{
+  min-height:46px;min-width:46px;display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 11px;border:0;border-radius:14px;
+  background:var(--surface);color:var(--ink);font-weight:800;font-size:13.5px;white-space:nowrap;
+  box-shadow:0 4px 0 var(--beige-400), inset 0 0 0 2px var(--beige-300);transition:background .2s, box-shadow .15s;
+}
+.pref-btn:hover{background:var(--surface-hover)}
+.pref-btn[aria-expanded="true"]{box-shadow:0 4px 0 var(--beige-400), inset 0 0 0 2px var(--nasa-500)}
+.pref-btn .pref-ic{color:var(--nasa-text);display:inline-flex}
+.pref-btn .chev{display:inline-flex;opacity:.7;transition:transform .15s}
+.pref-btn[aria-expanded="true"] .chev{transform:rotate(180deg)}
+.pref-list{
+  position:absolute;right:0;top:calc(100% + 10px);z-index:40;min-width:230px;margin:0;padding:6px;list-style:none;
+  background:var(--surface);border-radius:16px;box-shadow:0 0 0 2px var(--beige-200), 0 14px 36px var(--pop-shadow);
+  animation:pref-in .14s ease-out;
+}
+.pref-list[hidden]{display:none}
+.pref-list:focus{outline:none}
+@keyframes pref-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.pref-opt{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 10px;border-radius:11px;font-weight:700;font-size:14px;cursor:pointer;color:var(--ink)}
+.pref-opt:hover{background:var(--beige-100)}
+.pref-opt.active{box-shadow:inset 0 0 0 2px var(--nasa-500)}
+.pref-opt[aria-selected="true"]{background:var(--green-100);font-weight:800}
+.pref-opt .opt-ic{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;background:var(--beige-100);color:var(--nasa-text);font-size:11px;font-weight:800;letter-spacing:.3px}
+.pref-opt[aria-selected="true"] .opt-ic{background:var(--surface)}
+.pref-opt .opt-text{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.pref-opt small{color:var(--muted);font-weight:700;font-size:12px}
+.pref-opt .tick{margin-left:auto;display:inline-flex;visibility:hidden;color:var(--green-text)}
+.pref-opt[aria-selected="true"] .tick{visibility:visible}
+/* tooltip */
+.tip{position:relative}
+.tip::after{
+  content:attr(data-tip);position:absolute;left:50%;top:calc(100% + 10px);transform:translate(-50%,-4px);z-index:45;
+  background:var(--tip-bg);color:var(--tip-text);font-size:12px;font-weight:800;padding:6px 9px;border-radius:9px;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .15s .35s, transform .15s .35s;
+}
+.tip:hover::after,.tip:focus-visible::after{opacity:1;transform:translate(-50%,0)}
+.tip[aria-expanded="true"]::after{display:none}
+@media (hover:none){.tip::after{display:none}}
+/* mobile settings menu */
+.menu-btn{display:none}
+.mobile-menu{display:none}
+.menu-field{display:grid;gap:6px;min-width:0}
+.menu-label{font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+.pref.block .pref-btn{width:100%;justify-content:flex-start}
+.pref.block .pref-val{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis}
+.pref.block .pref-list{position:static;margin-top:10px;min-width:0;box-shadow:inset 0 0 0 2px var(--beige-200)}
+
+/* ---------- Data status (Live / Cached / Demo) ---------- */
+.status{display:inline-flex;align-items:center;gap:7px;border-radius:99px;padding:6px 11px 6px 9px;font-size:12.5px;font-weight:800;white-space:nowrap;background:var(--beige-100);color:var(--ink)}
+.status i{width:9px;height:9px;border-radius:50%;flex:none;background:var(--muted)}
+.status.live{background:var(--green-100);color:var(--green-text)}
+.status.live i{background:var(--green-500);box-shadow:0 0 0 3px rgba(62,155,79,.25)}
+.status.cached{background:var(--nasa-100);color:var(--nasa-text)}
+.status.cached i{background:var(--nasa-500)}
+.status.demo{background:var(--amber-100);color:var(--amber-text)}
+.status.demo i{background:var(--amber-500)}
+.nasa-head .status{margin-left:auto;position:relative;z-index:1;background:rgba(255,255,255,.16);color:#fff}
+
+/* ---------- Pages: location, levels, farm report ---------- */
+.page{max-width:1080px;margin:0 auto;padding:16px 16px 40px;display:grid;gap:16px}
+.page-head{padding:22px}
+.page-head h2{font-size:28px;color:var(--heading)}
+.page-head p{color:var(--muted);font-weight:700;margin:6px 0 0;line-height:1.5;max-width:720px}
+.loc-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;align-items:start}
+.loc-card{padding:18px;display:grid;gap:12px;align-content:start}
+.loc-card h3{font-size:18px;display:flex;align-items:center;gap:8px}
+.field-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.input{width:100%;min-width:0;min-height:46px;border:0;border-radius:14px;padding:0 14px;font:inherit;font-weight:700;font-size:15px;background:var(--beige-50);color:var(--ink);box-shadow:inset 0 0 0 2px var(--beige-300)}
+.input:focus{outline:none;box-shadow:inset 0 0 0 3px var(--nasa-500)}
+.input[aria-invalid="true"]{box-shadow:inset 0 0 0 3px var(--red-600)}
+.lbl{display:grid;gap:5px;font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);flex:1;min-width:120px}
+.place-list{display:grid;gap:8px}
+.place{border:0;display:flex;align-items:center;gap:10px;text-align:left;background:var(--beige-50);border-radius:14px;padding:10px 12px;box-shadow:inset 0 0 0 2px var(--beige-200);width:100%}
+.place:hover{background:var(--surface-hover);box-shadow:inset 0 0 0 2px var(--nasa-500)}
+.place b{display:block;font-size:14.5px;font-weight:800}
+.place small{display:block;font-size:12px;color:var(--muted);font-weight:700}
+.place .pic{width:34px;height:34px;border-radius:11px;background:var(--nasa-100);color:var(--nasa-text);display:grid;place-items:center;flex:none}
+.place.current{box-shadow:inset 0 0 0 3px var(--green-500)}
+.msg{font-size:13px;font-weight:700;color:var(--muted);line-height:1.45;margin:0}
+.msg.err{color:var(--red-text)}
+.presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.levels-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 16px}
+.where{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 260px}
+.where .pic{width:40px;height:40px;border-radius:13px;background:var(--nasa-100);color:var(--nasa-text);display:grid;place-items:center;flex:none}
+.where b{display:block;font-size:16px;font-weight:800}
+.where small{display:block;color:var(--muted);font-weight:700;font-size:12.5px}
+.level-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.level{padding:16px;display:flex;flex-direction:column;gap:10px}
+.level-top{display:flex;align-items:center;gap:10px}
+.level .num{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;color:#fff;font-family:var(--font-display);font-size:20px;font-weight:700;flex:none}
+.level h3{font-size:19px;line-height:1.15}
+.level p{margin:0;font-size:13.5px;line-height:1.45;color:var(--muted);font-weight:700}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip-s{font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:99px;background:var(--nasa-100);color:var(--nasa-ink)}
+.level .foot{margin-top:auto;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.level.locked{opacity:.6}
+.mini-stars{display:flex;gap:2px}
+.mini-stars svg{width:22px;height:22px}
+.mini-stars .star-off{fill:var(--beige-200);stroke:var(--beige-300)}
+.best{font-size:12px;font-weight:800;color:var(--muted)}
+
+/* ---------- Level brief ---------- */
+.brief{padding:22px;display:grid;gap:14px}
+.brief h2{font-size:26px;color:var(--heading)}
+.brief p.story{margin:0;font-size:15px;line-height:1.55;color:var(--muted);font-weight:600}
+.brief h3{font-family:var(--font-body);font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+.goal-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.goal-list li{display:flex;gap:8px;align-items:center;font-weight:700;font-size:14px;background:var(--amber-100);border-radius:12px;padding:8px 10px}
+.goal-list li.ok{background:var(--green-100)}
+.goal-list li.no{background:var(--red-100)}
+.goal-list .gi{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;color:#fff;background:var(--amber-500);flex:none}
+.goal-list li.ok .gi{background:var(--green-500)}
+.goal-list li.no .gi{background:var(--red-600)}
+.goal-list em{margin-left:auto;font-style:normal;font-weight:800;white-space:nowrap}
+.kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:8px}
+.kv div{background:var(--beige-100);border-radius:12px;padding:8px 10px}
+.kv small{display:block;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.kv b{font-family:var(--font-display);font-size:20px;font-weight:600}
+.kv b.up{color:var(--green-text)}
+.kv b.down{color:var(--red-text)}
+.season-rows{display:grid;gap:6px}
+.season-row{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-weight:700;font-size:13.5px;background:var(--nasa-100);color:var(--nasa-ink);border-radius:12px;padding:8px 10px}
+.rules{font-size:13px;line-height:1.5;font-weight:600;color:var(--muted);margin:0}
+.brief-foot{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+
+/* ---------- Events, soil, decisions ---------- */
+.events{display:flex;flex-wrap:wrap;gap:6px}
+.ev{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:800;padding:4px 9px;border-radius:99px}
+.ev.drought,.ev.heat{background:var(--red-100);color:var(--red-text)}
+.ev.downpour{background:var(--nasa-100);color:var(--nasa-text)}
+.ev.waterDeficit{background:var(--amber-100);color:var(--amber-text)}
+.ev.calm{background:var(--green-100);color:var(--green-text)}
+.soil-card{background:var(--soil-100);border-radius:14px;padding:11px 12px;display:grid;gap:7px}
+.soil-card h3{font-family:var(--font-body);font-size:13.5px;font-weight:800;display:flex;align-items:center;gap:8px}
+.srow{display:grid;grid-template-columns:118px 1fr 34px;gap:8px;align-items:center;font-size:12.5px;font-weight:800}
+.srow span:last-child{text-align:right}
+.srow .bar{margin:0;height:8px;background:var(--surface)}
+.history{display:flex;flex-wrap:wrap;gap:5px;align-items:center;font-size:12px;font-weight:800;color:var(--muted)}
+.history span{background:var(--surface);color:var(--ink);padding:2px 8px;border-radius:99px}
+.method{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.method button{border:0;border-radius:11px;padding:7px 9px;font-weight:800;font-size:12.5px;background:var(--beige-50);box-shadow:inset 0 0 0 2px var(--beige-200);text-align:left;line-height:1.25}
+.method button small{display:block;font-weight:700;color:var(--muted);font-size:11px}
+.method button[aria-pressed="true"]{background:var(--nasa-100);box-shadow:inset 0 0 0 3px var(--nasa-500)}
+.method button:disabled{opacity:.45}
+.missing{font-size:12.5px;font-weight:800;color:var(--amber-ink);background:var(--amber-100);border-radius:11px;padding:8px 10px;display:none;margin:0}
+.missing.show{display:block}
+.crop .tag.warn{background:var(--red-100);color:var(--red-text)}
+.fert .cost small{display:inline;font-size:11px}
+.datum-val b{font-size:26px}
+.datum{padding:10px 12px}
+
+/* ---------- Season report extras ---------- */
+.why{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.why li{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;line-height:1.45;font-weight:600}
+.why .pb{flex:none;font-size:10.5px;font-weight:800;letter-spacing:.3px;padding:3px 7px;border-radius:7px;background:var(--nasa-100);color:var(--nasa-text);margin-top:1px;min-width:64px;text-align:center}
+.why .pb.dec{background:var(--beige-200);color:var(--soil-text)}
+.why .imp{margin-left:auto;padding-left:6px;font-family:var(--font-display);font-weight:700;white-space:nowrap}
+.why .imp.down{color:var(--red-text)}
+.why .imp.up{color:var(--green-text)}
+.section-t{font-family:var(--font-body);font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.alt{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:var(--green-100);color:var(--green-ink);border-radius:14px;padding:11px 12px;font-size:13.5px;font-weight:700;line-height:1.45}
+.alt.same{background:var(--beige-100);color:var(--ink)}
+.alt > span{flex:1 1 260px}
+
+/* ---------- What If ---------- */
+.whatif{padding:20px 22px 22px;display:grid;gap:14px}
+.whatif h2{font-size:24px}
+.wi-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.wi-col{border-radius:16px;padding:12px;background:var(--beige-100);display:grid;gap:8px;align-content:start}
+.wi-col.alt-col{background:var(--nasa-100)}
+.wi-col h3{font-size:16px}
+.wi-col p{margin:0;font-weight:700;font-size:13.5px;line-height:1.45}
+.wi-col label{display:grid;gap:3px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.wi-col select{width:100%;min-height:40px;border:0;border-radius:11px;padding:0 10px;font:inherit;font-weight:700;font-size:14px;text-transform:none;letter-spacing:0;background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 2px var(--beige-300)}
+.table-wrap{overflow-x:auto}
+.table{width:100%;border-collapse:collapse;font-size:13.5px;font-weight:700}
+.table th,.table td{padding:8px;border-bottom:2px dashed var(--beige-200);text-align:right;white-space:nowrap}
+.table th{font-size:11.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.table th:first-child,.table td:first-child{text-align:left;white-space:normal}
+.table td.better{color:var(--green-text);font-weight:800}
+.table td.worse{color:var(--red-text)}
+.note-sm{font-size:12.5px;font-weight:700;color:var(--muted);margin:0;line-height:1.45}
+
+/* ---------- Level result + farm report ---------- */
+.cats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.cat{border-radius:16px;padding:12px 8px;background:var(--beige-50);box-shadow:inset 0 0 0 2px var(--beige-200);text-align:center}
+.cat.on{box-shadow:inset 0 0 0 3px #E0B53A}
+.cat svg{width:30px;height:30px}
+.cat .star-off{fill:var(--beige-200);stroke:var(--beige-300)}
+.cat b{display:block;font-family:var(--font-display);font-size:26px;font-weight:600;line-height:1.1}
+.cat small{display:block;font-size:12px;font-weight:800;color:var(--muted);line-height:1.3}
+.provenance{font-size:12.5px;font-weight:700;color:var(--muted);line-height:1.5;margin:0}
+.toast{position:fixed;left:50%;bottom:18px;transform:translate(-50%,20px);z-index:70;background:var(--tip-bg);color:var(--tip-text);border-radius:14px;padding:10px 14px;font-weight:800;font-size:13.5px;opacity:0;pointer-events:none;transition:opacity .25s, transform .25s;display:flex;gap:8px;align-items:center;max-width:calc(100% - 32px)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.stage[data-state="heatstress"]{--leaf:#C9A04A;--leaf-dark:#93702F;--head:#D1AA60;--head2:#A8653F;--soil:#A9825A;--soil-dark:#8C6743;--soil-line:#98724B;--grass:#C4BA72;--grass-side:#9E934F;--grow:.8;--tilt:-6deg;--cracks:.5}
+.stage[data-state="disease"]{--leaf:#A7B45A;--leaf-dark:#7C6E4A;--head:#B9A77A;--head2:#8E6A55;--grow:.72;--tilt:4deg}
+.stage[data-state="heatstress"] .sway{animation:none}
+
+/* ---------- Responsive ---------- */
+@media (max-width:1439px){
+  .game .mission{order:5;flex-basis:100%}
+}
+@media (max-width:1180px){
+  .game{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"top top" "stage stage" "bottom bottom" "left right"}
+  .meters{grid-template-columns:repeat(5,1fr)}
+}
+@media (max-width:1023px){
+  .prefs-desktop{display:none}
+  .menu-btn{display:inline-flex}
+  .game .mission{order:0;flex-basis:auto}
+  .mobile-menu.open{display:grid;flex-basis:100%;order:6;gap:12px;padding:12px;background:var(--beige-50);border-radius:16px;box-shadow:inset 0 0 0 2px var(--beige-200)}
+}
+@media (min-width:560px) and (max-width:1023px){
+  .mobile-menu.open{grid-template-columns:1fr 1fr;align-items:start}
+}
+@media (max-width:860px){
+  .meters{grid-template-columns:repeat(3,1fr)}
+  .final-hero,.final-grid{grid-template-columns:1fr}
+}
+@media (max-width:720px){
+  .game{grid-template-columns:minmax(0,1fr);grid-template-areas:"top" "stage" "bottom" "left" "right";padding:10px;gap:12px}
+  .topbar{gap:10px}
+  .brand span{display:none}
+  .top-actions{order:2}
+  .mobile-menu.open{order:2}
+  .season-pill{order:3;flex-basis:100%}
+  .season-dots{margin-left:auto}
+  .game .mission{order:5;flex-basis:100%}
+  .tut{padding:20px 18px 18px}
+  .tut-art svg.art{width:56px;height:72px}
+  .stage{min-height:360px}
+  .stage-bar{padding:10px}
+  .view-toggle button span:last-child{display:none}
+  .meters{grid-template-columns:repeat(2,1fr);gap:8px;padding:10px}
+  .meter{padding:6px}
+  .meter .mic{width:38px;height:38px}
+  .meter .val b{font-size:23px}
+  .meter:last-child{grid-column:1 / -1}
+  .chain{grid-template-columns:1fr}
+  .link:not(:last-child)::after{right:50%;top:auto;bottom:-9px;transform:translateX(50%) rotate(90deg)}
+  .timeline{grid-template-columns:1fr}
+  .brow{grid-template-columns:110px 1fr 44px}
+  .report-head{flex-wrap:wrap}
+  .field-ndvi{margin-left:0}
+  .score-num{font-size:70px}
+  .sun{top:84px;width:52px;height:52px}
+}
+@media (max-width:480px){
+  .topbar{padding:10px 10px 10px 12px;gap:8px}
+  .brand{gap:8px}
+  .brand-mark{width:40px;height:40px;border-radius:12px}
+  .brand h1{font-size:17px}
+  .top-actions{gap:6px}
+  .btn-icon{width:44px;height:44px}
+}
+@media (max-width:359px){
+  .brand h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important}
+}
+@media (max-width:860px){
+  .loc-grid{grid-template-columns:1fr}
+}
+@media (max-width:560px){
+  .wi-grid{grid-template-columns:1fr}
+  .cats{gap:6px}
+  .cat b{font-size:21px}
+  .srow{grid-template-columns:96px 1fr 30px}
+  .page-head{padding:16px}
+  .page-head h2{font-size:23px}
+}
+
+/* ---------- Farm setup: period and soil ---------- */
+.period{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.period fieldset{border:0;margin:0;padding:10px;display:flex;flex-wrap:wrap;gap:8px;background:var(--beige-50);border-radius:14px;box-shadow:inset 0 0 0 2px var(--beige-200);flex:1 1 260px}
+.period legend{font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--heading);padding:0 4px;float:left;width:100%;margin-bottom:2px}
+.period .msg{flex:1 1 100%}
+.soil-pick{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.soil-opt{border:0;text-align:left;background:var(--beige-50);border-radius:16px;padding:12px;box-shadow:inset 0 0 0 2px var(--beige-200), 0 3px 0 var(--beige-200);display:grid;gap:6px;align-content:start}
+.soil-opt:hover{background:var(--surface-hover)}
+.soil-opt[aria-pressed="true"]{background:var(--green-100);box-shadow:inset 0 0 0 3px var(--green-500), 0 3px 0 var(--green-700)}
+.soil-opt small{font-size:12px;font-weight:700;color:var(--muted);line-height:1.4}
+.soil-opt .srow{grid-template-columns:1fr 70px}
+.soil-top{display:flex;align-items:center;gap:8px}
+.soil-top b{font-size:15.5px;font-weight:800}
+.soil-sw{width:28px;height:28px;border-radius:9px;flex:none;box-shadow:inset 0 0 0 2px rgba(0,0,0,.08)}
+.soil-sandy{background:radial-gradient(circle at 30% 30%,#F2D9A2 0 3px,transparent 3.5px) 0 0/8px 8px,#E3C07E}
+.soil-loam{background:radial-gradient(circle at 40% 40%,#8C5E3C 0 2px,transparent 2.5px) 0 0/7px 7px,#A87B52}
+.soil-clay{background:repeating-linear-gradient(0deg,#9E5B3E 0 3px,#B76E4C 3px 6px)}
+/* ---------- Levels and brief ---------- */
+.lv-prov{flex:1 1 100%}
+.lv-prov summary{cursor:pointer;font-weight:800;font-size:13px;color:var(--nasa-text)}
+.lv-prov .prov{margin-top:8px}
+.prov{display:grid;gap:6px}
+.prov a{color:var(--nasa-text);font-weight:800}
+.chip-s.warn{background:var(--amber-100);color:var(--amber-ink)}
+.chip-s.off{text-decoration:line-through;opacity:.6}
+.years{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:6px}
+.year{border:0;text-align:left;border-radius:12px;padding:8px 10px;background:var(--beige-50);box-shadow:inset 0 0 0 2px var(--beige-200)}
+.year b{display:block;font-family:var(--font-display);font-size:18px;font-weight:600}
+.year small{display:block;font-size:11.5px;font-weight:700;color:var(--muted)}
+.year.on{background:var(--nasa-100);box-shadow:inset 0 0 0 3px var(--nasa-500)}
+.ev.hot,.ev.warm,.ev.dry{background:var(--red-100);color:var(--red-text)}
+.ev.wet{background:var(--nasa-100);color:var(--nasa-text)}
+/* ---------- Game panels ---------- */
+.method.three{grid-template-columns:repeat(3,1fr);margin-top:0}
+.method button .icon{vertical-align:-.25em}
+.datum.mini{display:grid;gap:6px}
+.mrow{display:grid;grid-template-columns:20px 1fr auto;gap:2px 8px;align-items:center;font-size:12.5px;font-weight:700}
+.mrow b{font-weight:800;text-align:right}
+.mrow small{grid-column:2 / -1;font-size:10.5px;font-weight:800;color:var(--nasa-text)}
+.obs .prov{gap:4px}
+.grow-bar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:5;width:min(420px,calc(100% - 28px));background:var(--glass);border-radius:14px;padding:8px 12px;box-shadow:0 3px 0 rgba(0,0,0,.08);display:grid;gap:6px;font-size:12.5px;font-weight:800}
+.grow-bar[hidden]{display:none}
+.grow-bar i{display:block;height:8px;width:0;border-radius:99px;background:linear-gradient(90deg,var(--nasa-500),var(--green-500));transition:width .1s linear}
+.stage.paused *,.stage.paused *::before,.stage.paused *::after{animation-play-state:paused!important}
+.stage[data-state="growing"]{--grow:.7}
+.stage[data-state="frost"]{--leaf:#8FB3A8;--leaf-dark:#5C7F77;--head:#C9C9B5;--head2:#8E8A7A;--grow:.7;--tilt:-4deg}
+.stage[data-state="immature"]{--leaf:#8CC57A;--leaf-dark:#5E9A4A;--head:#B9D98A;--head2:#9BB86A;--grow:.55}
+.status.stale{background:var(--amber-100);color:var(--amber-text)}
+.status.stale i{background:var(--amber-500)}
+/* ---------- Season report ---------- */
+.why .pb.nasa{background:var(--nasa-100);color:var(--nasa-text)}
+.why .pb.player{background:var(--beige-200);color:var(--soil-text)}
+.why .pb.computed{background:var(--green-100);color:var(--green-text)}
+.why .pb.assumption{background:var(--amber-100);color:var(--amber-text)}
+.why .pb{min-width:92px}
+.chart{margin:0;background:var(--beige-50);border-radius:14px;padding:8px 10px;box-shadow:inset 0 0 0 2px var(--beige-200)}
+.chart svg{width:100%;height:auto;display:block}
+.chart .c-rain{fill:#6FA9E3}
+.chart .c-irr{fill:#2FB3A0}
+.chart .c-moist{fill:none;stroke:#8C5E3C;stroke-width:2.2}
+.chart .c-axis{stroke:var(--beige-300);stroke-width:1.5}
+.chart .c-mat{stroke:var(--amber-500);stroke-width:1.5;stroke-dasharray:4 3}
+.chart .c-lbl{fill:var(--muted);font-size:11px;font-weight:700;font-family:var(--font-body)}
+.chart figcaption{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;font-size:11.5px;font-weight:800;color:var(--muted);margin-top:4px}
+.chart .lg{display:inline-block;width:12px;height:8px;border-radius:3px;margin-right:4px;vertical-align:middle}
+.chart .lg.rain{background:#6FA9E3}
+.chart .lg.irr{background:#2FB3A0}
+.chart .lg.moist{background:#8C5E3C;height:3px}
+.whatif-auto{display:grid;gap:8px;background:var(--nasa-100);border-radius:16px;padding:12px}
+.whatif-auto .section-t{display:flex;align-items:center;gap:6px;color:var(--nasa-ink)}
+.wi-alt{background:var(--surface);border-radius:12px;padding:10px 12px;display:grid;gap:6px}
+.wi-alt-top{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.wi-alt-top b{font-size:14px}
+.wi-alt .crit{font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:3px 8px;border-radius:99px;background:var(--green-100);color:var(--green-text)}
+.wi-alt .deltas{gap:4px}
+.wi-alt .dchip{font-size:12px;padding:4px 8px}
+.whatif-auto .btn{justify-self:start}
+details.limits{font-size:12.5px;font-weight:700;color:var(--muted)}
+details.limits summary{cursor:pointer;font-weight:800;color:var(--ink)}
+details.limits ul{margin:6px 0 0;padding-left:18px;display:grid;gap:4px;line-height:1.45}
+.field-ndvi small{display:block}
+@media (max-width:860px){ .soil-pick{grid-template-columns:1fr} }
+@media (max-width:560px){ .method.three{grid-template-columns:1fr} .why .pb{min-width:0} }
+
+/* ---------- Layout fixes found in a real browser ---------- */
+/* The hidden attribute must win over display rules like .btn{display:inline-flex} */
+[hidden]{display:none!important}
+.err-url{margin-top:8px;word-break:break-all}
+.err-url:empty{display:none}
+/* Button icons are separate decorative elements, never part of the label text */
+.bi{display:inline-flex;flex:none;line-height:0}
+.bl{min-width:0}
+.btn > [data-ic]{display:inline-flex;flex:none;line-height:0}
+/* Irrigation systems: a list like soil care, so long names (RU "Затопление", "Дождевание") are never cut */
+.method.three{grid-template-columns:1fr}
+.method button{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center;padding:8px 10px}
+.method button .bi{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:var(--nasa-100);color:var(--nasa-text)}
+.method button .bl b{display:block;font-weight:800;font-size:13.5px}
+.seg button .drops{line-height:0}
+/* .topbar has grid-area:top for the game grid; on grid pages it must stay a normal row */
+.page > .topbar{grid-area:auto}
+/* The NASA header: title and period get the full width, the status badge goes below */
+.nasa-head{flex-wrap:wrap}
+.nasa-head > div:nth-child(2){flex:1 1 150px;min-width:0}
+.nasa-head .status{margin-left:0;flex:0 1 auto}
+/* On wide screens the field stays in view instead of stretching to the side panels */
+@media (min-width:1181px){
+  .stage{align-self:start;position:sticky;top:16px;height:min(720px,calc(100vh - 32px))}
+}
+[data-theme="dark"] .stage[data-weather="heat"] .haze{opacity:.35}
+/* Meter values like "350 mm" or "$10,456" must not widen the grid past the phone screen */
+.meters{grid-template-columns:repeat(5,minmax(0,1fr))}
+.meter{min-width:0}
+.meter .val b{overflow:hidden;text-overflow:ellipsis}
+@media (max-width:860px){ .meters{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@media (max-width:720px){ .meters{grid-template-columns:repeat(2,minmax(0,1fr))} }
+</style>
+</head>
+<body>
+
+<!-- ================= LOADING ================= -->
+<section id="scr-loading" class="center-screen" aria-live="polite">
+  <div class="boot">
+    <div class="orbit">
+      <div class="orbit-ring"></div>
+      <div class="planet"></div>
+      <div class="sat" data-ic="satellite-color"></div>
+    </div>
+    <h1 id="loading-title">Farm Navigator</h1>
+    <p id="loading-text"></p>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-i18n-attr="aria-label:loading.progress"><i id="boot-bar"></i></div>
+    <ul class="boot-steps" id="boot-steps">
+      <li><span class="dot" data-ic="check"></span><span data-i18n="loading.step.temperature">Air temperature</span><small>T2M · T2M_MAX · T2M_MIN</small></li>
+      <li><span class="dot" data-ic="check"></span><span data-i18n="loading.step.rainfall">Rainfall</span><small>PRECTOTCORR</small></li>
+      <li><span class="dot" data-ic="check"></span><span data-i18n="loading.step.air">Humidity and wind</span><small>RH2M · WS2M</small></li>
+      <li><span class="dot" data-ic="check"></span><span data-i18n="loading.step.solar">Solar radiation</span><small>ALLSKY_SFC_SW_DWN</small></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= ERROR / OFFLINE ================= -->
+<section id="scr-error" class="center-screen" aria-live="assertive">
+  <div class="boot err">
+    <div class="orbit">
+      <div class="orbit-ring"></div>
+      <div class="planet"></div>
+      <div class="sat" data-ic="satellite-color"></div>
+      <div class="err-badge">!</div>
+    </div>
+    <h1 id="err-title"></h1>
+    <p id="err-text"></p>
+    <span class="err-code" id="err-code"></span>
+    <p class="msg err-url" id="err-url"></p>
+    <div class="boot-actions">
+      <button class="btn btn-nasa btn-lg" id="btn-retry" type="button"><span data-ic="refresh"></span><span data-i18n="actions.retry">Try again</span></button>
+      <button class="btn btn-lg" id="btn-demo" type="button" hidden><span data-ic="map"></span><span data-i18n="actions.sampleData">Play with demo data</span></button>
+      <button class="btn btn-lg btn-ghost" id="btn-err-location" type="button" hidden><span data-ic="pin"></span><span data-i18n="actions.changeLocation">Change farm</span></button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FARM SETUP ================= -->
+<main id="scr-location" class="screen">
+  <div class="page">
+    <header class="topbar card">
+      <div class="brand"><div class="brand-mark" data-ic="logo"></div><div><h1>Farm Navigator</h1><span data-i18n="brand.tagline">Powered by NASA Earth data</span></div></div>
+      <div class="top-actions">
+        <div class="prefs prefs-desktop" data-prefs="compact"></div>
+        <button class="btn btn-icon menu-btn" type="button" data-menu-toggle aria-controls="menu-location" aria-expanded="false"></button>
+      </div>
+      <div class="mobile-menu" id="menu-location" data-prefs="menu"></div>
+    </header>
+    <section class="card page-head">
+      <h2 data-i18n="location.title">Set up your farm</h2>
+      <p data-i18n="location.text">Choose a real place and growing period: they select the NASA POWER weather series. The soil type describes your virtual farm.</p>
+    </section>
+    <div class="loc-grid">
+      <section class="card loc-card" aria-labelledby="loc-search-title">
+        <h3 id="loc-search-title"><span data-ic="map"></span><span data-i18n="location.presetsTitle">Ready-made regions</span></h3>
+        <div class="presets" id="loc-presets"></div>
+        <h3><span data-ic="search"></span><span data-i18n="location.searchTitle">Find a place</span></h3>
+        <form class="field-row" id="loc-search" novalidate>
+          <label class="lbl"><span data-i18n="location.searchLabel">City or place</span>
+            <input class="input" id="loc-q" name="q" autocomplete="off" minlength="2" maxlength="80" data-i18n-attr="placeholder:location.searchPlaceholder">
+          </label>
+          <button class="btn btn-nasa" type="submit" id="loc-search-btn"><span data-ic="search"></span><span data-i18n="location.search">Search</span></button>
+        </form>
+        <p class="msg" id="loc-msg" role="status"></p>
+        <div class="place-list" id="loc-results"></div>
+      </section>
+      <section class="card loc-card" aria-labelledby="loc-manual-title">
+        <h3 id="loc-manual-title"><span data-ic="pin"></span><span data-i18n="location.manualTitle">Or enter coordinates</span></h3>
+        <form id="loc-manual" class="field-row" novalidate>
+          <label class="lbl"><span data-i18n="location.latitude">Latitude</span>
+            <input class="input" id="loc-lat" inputmode="decimal" autocomplete="off" placeholder="43.60"></label>
+          <label class="lbl"><span data-i18n="location.longitude">Longitude</span>
+            <input class="input" id="loc-lon" inputmode="decimal" autocomplete="off" placeholder="77.00"></label>
+          <button class="btn btn-primary" type="submit" data-i18n="location.use">Use</button>
+        </form>
+        <p class="msg" id="loc-manual-msg" role="status" data-i18n="location.manualHint">Latitude −90…90, longitude −180…180 (decimal degrees).</p>
+        <div id="loc-current"></div>
+        <p class="provenance" data-i18n-html="location.note"></p>
+      </section>
+    </div>
+    <section class="card loc-card" aria-labelledby="per-title">
+      <h3 id="per-title"><span data-ic="clock"></span><span data-i18n="location.periodTitle">Growing period</span></h3>
+      <p class="msg" data-i18n="location.periodText">Pick the calendar window of your season. The game replays it in real past years; it may cross the new year (southern hemisphere).</p>
+      <div class="period">
+        <fieldset><legend data-i18n="location.periodStart">Sowing</legend>
+          <label class="lbl"><span data-i18n="location.month">Month</span><select class="input" id="per-start-m"></select></label>
+          <label class="lbl"><span data-i18n="location.day">Day</span><input class="input" id="per-start-d" type="number" min="1" max="31" inputmode="numeric"></label>
+        </fieldset>
+        <fieldset><legend data-i18n="location.periodEnd">Harvest</legend>
+          <label class="lbl"><span data-i18n="location.month">Month</span><select class="input" id="per-end-m"></select></label>
+          <label class="lbl"><span data-i18n="location.day">Day</span><input class="input" id="per-end-d" type="number" min="1" max="31" inputmode="numeric"></label>
+        </fieldset>
+        <p class="msg" id="per-info" role="status"></p>
+      </div>
+      <h3><span data-ic="soil"></span><span data-i18n="location.soilTitle">Soil of your virtual farm</span></h3>
+      <p class="msg" data-i18n="location.soilText">A game-model choice, not NASA data: the same rain soaks, drains and washes away differently on each soil.</p>
+      <div class="soil-pick" id="soil-pick" role="group" data-i18n-attr="aria-label:location.soilTitle"></div>
+      <p class="missing" id="setup-msg" role="status"></p>
+      <div class="boot-actions" style="justify-content:flex-start;margin-top:0">
+        <button class="btn btn-primary btn-lg" type="button" id="btn-load"><span data-ic="satellite"></span><span data-i18n="actions.loadFarm">Load NASA POWER data</span></button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ================= LEVEL SELECT ================= -->
+<main id="scr-levels" class="screen">
+  <div class="page">
+    <header class="topbar card">
+      <div class="brand"><div class="brand-mark" data-ic="logo"></div><div><h1>Farm Navigator</h1><span data-i18n="brand.tagline">Powered by NASA Earth data</span></div></div>
+      <div class="top-actions">
+        <div class="prefs prefs-desktop" data-prefs="compact"></div>
+        <button class="btn btn-icon" id="btn-help-levels" type="button" data-i18n-attr="aria-label:header.help;title:header.help"><span data-ic="help"></span></button>
+        <button class="btn btn-icon menu-btn" type="button" data-menu-toggle aria-controls="menu-levels" aria-expanded="false"></button>
+      </div>
+      <div class="mobile-menu" id="menu-levels" data-prefs="menu"></div>
+    </header>
+    <section class="card levels-bar">
+      <div class="where"><span class="pic" data-ic="pin"></span><div><b id="lv-place"></b><small id="lv-coords"></small></div></div>
+      <span id="lv-status"></span>
+      <button class="btn" id="btn-refresh" type="button"><span data-ic="refresh"></span><span data-i18n="actions.refresh">Reload data</span></button>
+      <button class="btn" id="btn-change-location" type="button"><span data-ic="pin"></span><span data-i18n="actions.changeLocation">Change farm</span></button>
+      <details class="lv-prov"><summary data-i18n="prov.title">About this data</summary><div id="lv-prov"></div></details>
+    </section>
+    <section class="card page-head">
+      <h2 data-i18n="levels.title">Seven challenges</h2>
+      <p id="lv-intro"></p>
+    </section>
+    <div class="level-grid" id="level-grid"></div>
+    <div class="final-actions"><button class="btn btn-lg" id="btn-farm-report" type="button"><span data-ic="trophy"></span><span data-i18n="farm.open">Farm report</span></button></div>
+  </div>
+</main>
+
+<!-- ================= GAME ================= -->
+<main id="scr-game" class="screen">
+  <div class="game">
+    <header class="topbar card">
+      <div class="brand">
+        <div class="brand-mark" data-ic="logo"></div>
+        <div><h1>Farm Navigator</h1><span data-i18n="brand.tagline">Powered by NASA Earth data</span></div>
+      </div>
+      <div class="season-pill">
+        <div class="season-emoji" id="season-ic"></div>
+        <div><b id="season-name"></b><small id="season-count"></small></div>
+        <div class="season-dots" id="season-dots" aria-hidden="true"></div>
+      </div>
+      <div class="mission">
+        <div class="mission-flag" data-ic="flag"></div>
+        <div><small data-i18n="header.mission">Level goal</small><b id="mission-text"></b></div>
+      </div>
+      <div class="top-actions">
+        <div class="prefs prefs-desktop" data-prefs="compact"></div>
+        <button class="btn btn-icon" id="btn-help" type="button" data-i18n-attr="aria-label:header.help;title:header.help"><span data-ic="help"></span></button>
+        <button class="btn btn-icon" id="btn-pause" type="button" data-i18n-attr="aria-label:header.pause;title:header.pauseShort"><span data-ic="pause"></span></button>
+        <button class="btn btn-icon menu-btn" type="button" data-menu-toggle aria-controls="menu-game" aria-expanded="false"></button>
+      </div>
+      <div class="mobile-menu" id="menu-game" data-prefs="menu"></div>
+    </header>
+
+    <!-- Left: decisions -->
+    <aside class="panel card left" data-i18n-attr="aria-label:decisions.title">
+      <div class="panel-title">
+        <div class="badge-ic" style="background:var(--green-500)" data-ic="sprout"></div>
+        <div><h2 data-i18n="decisions.title">Your decisions</h2><p data-i18n="decisions.subtitle">Read the NASA data, then plan the season</p></div>
+      </div>
+      <div>
+        <p class="group-label"><span data-i18n="decisions.crop">1 · Crop</span> <em id="crop-note"></em></p>
+        <div class="crop-grid" id="crop-grid" role="group" data-i18n-attr="aria-label:decisions.cropGroup"></div>
+      </div>
+      <div>
+        <p class="group-label"><span data-i18n="decisions.method">2 · Irrigation system</span></p>
+        <div class="method three" id="irr-method" role="group" data-i18n-attr="aria-label:decisions.methodGroup"></div>
+      </div>
+      <div>
+        <p class="group-label"><span data-i18n="decisions.intensity">3 · Water use</span> <em id="reserve-note"></em></p>
+        <div class="seg" id="irr-seg" role="group" data-i18n-attr="aria-label:decisions.intensityGroup"></div>
+        <p class="hint" id="irr-hint"></p>
+      </div>
+      <div>
+        <p class="group-label"><span data-i18n="decisions.care">4 · Soil care</span></p>
+        <div class="fert-list" id="care-list" role="group" data-i18n-attr="aria-label:decisions.careGroup"></div>
+      </div>
+      <div class="plan-sum" id="plan-sum"></div>
+      <p class="missing" id="missing" role="status"></p>
+      <button class="btn btn-primary btn-lg confirm" id="btn-confirm" type="button"></button>
+    </aside>
+
+    <!-- Center: field -->
+    <section class="stage card" id="stage" data-state="planning" data-weather="clear" data-i18n-attr="aria-label:field.aria">
+      <div class="weather" aria-hidden="true">
+        <div class="sun"></div>
+        <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
+        <div class="rain" id="rain"></div>
+        <div class="haze"></div>
+      </div>
+      <div class="stage-bar">
+        <div class="cond" aria-live="polite">
+          <div class="cic" id="cond-ic"></div>
+          <div><small data-i18n="field.condition">Field condition</small><b id="cond-text"></b></div>
+        </div>
+        <div class="wx" id="wx-chip"></div>
+        <div class="view-toggle" role="group" data-i18n-attr="aria-label:field.view">
+          <button aria-pressed="true" id="view-farm" type="button"><span data-ic="sprout"></span><span data-i18n="field.farm">Farm</span></button>
+          <button aria-pressed="false" id="view-sat" class="sat-btn" type="button"><span data-ic="ndvi"></span><span data-i18n="field.ndvi">Greenness (model)</span></button>
+        </div>
+      </div>
+      <div class="field-wrap"><svg class="fieldsvg" id="field" viewBox="0 0 600 385" role="img" data-i18n-attr="aria-label:field.image"></svg></div>
+      <div class="grow-bar" id="grow-bar" hidden aria-live="polite"><span></span><i></i></div>
+      <div class="ndvi-legend" aria-hidden="true"><span data-i18n="field.ndviLegend">Simulated greenness, not satellite NDVI</span> <span>0.1</span><i></i><span>0.9</span></div>
+      <div class="banner" id="banner"><div class="banner-card" id="banner-card"></div></div>
+    </section>
+
+    <!-- Right: NASA data -->
+    <aside class="panel card right" data-i18n-attr="aria-label:nasa.title">
+      <div class="nasa-head">
+        <div data-ic="satellite-white"></div>
+        <div><h2 data-i18n="nasa.title">NASA POWER</h2><p id="nasa-sub"></p></div>
+        <span id="nasa-status"></span>
+      </div>
+      <div class="events" id="events"></div>
+      <div class="data-list" id="data-list"></div>
+      <div class="insight" id="insight"></div>
+      <div class="soil-card" id="soil-card"></div>
+      <div class="obs" id="obs"></div>
+    </aside>
+
+    <!-- Bottom: meters -->
+    <footer class="meters card" id="meters" data-i18n-attr="aria-label:meters.aria"></footer>
+  </div>
+</main>
+
+<!-- ================= LEVEL RESULT ================= -->
+<main id="scr-final" class="screen">
+  <div class="final">
+    <header class="topbar card final-top">
+      <div class="brand"><div class="brand-mark" data-ic="logo"></div><div><h1>Farm Navigator</h1><span data-i18n="brand.tagline">Powered by NASA Earth data</span></div></div>
+      <div class="top-actions">
+        <div class="prefs prefs-desktop" data-prefs="compact"></div>
+        <button class="btn btn-icon menu-btn" type="button" data-menu-toggle aria-controls="menu-final" aria-expanded="false"></button>
+      </div>
+      <div class="mobile-menu" id="menu-final" data-prefs="menu"></div>
+    </header>
+    <div id="final"></div>
+  </div>
+</main>
+
+<!-- ================= FARM REPORT ================= -->
+<main id="scr-farm" class="screen">
+  <div class="final">
+    <header class="topbar card final-top">
+      <div class="brand"><div class="brand-mark" data-ic="logo"></div><div><h1>Farm Navigator</h1><span data-i18n="brand.tagline">Powered by NASA Earth data</span></div></div>
+      <div class="top-actions">
+        <div class="prefs prefs-desktop" data-prefs="compact"></div>
+        <button class="btn btn-icon menu-btn" type="button" data-menu-toggle aria-controls="menu-farm" aria-expanded="false"></button>
+      </div>
+      <div class="mobile-menu" id="menu-farm" data-prefs="menu"></div>
+    </header>
+    <div id="farm"></div>
+  </div>
+</main>
+
+<!-- ================= OVERLAYS ================= -->
+<div class="overlay" id="ov-level" role="dialog" aria-modal="true" aria-labelledby="brief-title"><div class="modal" style="width:min(720px,100%)"><div class="brief" id="brief"></div></div></div>
+<div class="overlay" id="ov-report" role="dialog" aria-modal="true" aria-labelledby="rep-title"><div class="modal" style="width:min(760px,100%)" id="report"></div></div>
+<div class="overlay" id="ov-whatif" role="dialog" aria-modal="true" aria-labelledby="wi-title"><div class="modal" style="width:min(760px,100%)"><div class="whatif" id="whatif"></div></div></div>
+<div class="overlay" id="ov-tut" role="dialog" aria-modal="true" aria-labelledby="tut-title"><div class="modal"><div class="tut" id="tut"></div></div></div>
+<div class="overlay" id="ov-pause" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+  <div class="modal pause">
+    <div class="pic" data-ic="pause"></div>
+    <h2 id="pause-title" data-i18n="pause.title">Paused</h2>
+    <p data-i18n="pause.text">The season is on hold. Satellites keep orbiting.</p>
+    <div class="stack">
+      <button class="btn btn-primary btn-lg" id="btn-resume" type="button"><span data-ic="play"></span><span data-i18n="actions.resume">Resume</span></button>
+      <button class="btn btn-lg" id="btn-pause-help" type="button"><span data-ic="help"></span><span data-i18n="header.help">How to play</span></button>
+      <button class="btn btn-lg" id="btn-pause-levels" type="button"><span data-ic="grid"></span><span data-i18n="actions.levels">All levels</span></button>
+      <button class="btn btn-lg btn-ghost" id="btn-restart" type="button"><span data-ic="refresh"></span><span data-i18n="actions.restartLevel">Restart level</span></button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- ================= TRANSLATIONS =================
+     One JSON block per language. Keys must match across languages
+     (checked by tests/i18n.test.mjs). {{name}} = interpolation. -->
+<script type="application/json" id="i18n-en">
+{
+  "meta.title": "Farm Navigator",
+  "meta.description": "An educational farming strategy game on real historical NASA POWER weather data.",
+  "brand.tagline": "Powered by NASA POWER data",
+
+  "language.label": "Language",
+  "language.system": "System",
+  "language.systemResolved": "System ({{lang}})",
+  "language.english": "English",
+  "language.russian": "Русский",
+  "language.button": "Language: {{value}}",
+  "theme.label": "Theme",
+  "theme.system": "System",
+  "theme.systemResolved": "System ({{theme}})",
+  "theme.light": "Light",
+  "theme.dark": "Dark",
+  "theme.button": "Theme: {{value}}",
+  "menu.open": "Open settings menu",
+  "menu.close": "Close settings menu",
+
+  "loading.connect": "Connecting to the game server…",
+  "loading.connectText": "Loading the game rules.",
+  "loading.title": "Tuning in to NASA POWER…",
+  "loading.text": "Downloading 20 years of daily weather for {{place}}, {{period}}.",
+  "loading.demoTitle": "Preparing demo weather…",
+  "loading.demoText": "Synthetic weather, clearly labelled Demo: not NASA data and not {{place}}.",
+  "loading.progress": "Loading data",
+  "loading.step.temperature": "Air temperature",
+  "loading.step.rainfall": "Rainfall",
+  "loading.step.air": "Humidity and wind",
+  "loading.step.solar": "Solar radiation",
+
+  "error.code": "Error: {{kind}} · {{status}}",
+  "error.offline.title": "You are offline",
+  "error.offline.text": "The game needs its server to simulate seasons. Reconnect and try again.",
+  "error.offline.short": "you are offline",
+  "error.timeout.title": "NASA POWER is too slow",
+  "error.timeout.text": "The data request timed out after several attempts. Try again, or play with clearly labelled demo weather.",
+  "error.timeout.short": "the request timed out",
+  "error.nasa.title": "NASA POWER is unavailable",
+  "error.nasa.text": "The server could not download NASA POWER data and has no saved copy for this farm. Try again later, or play with clearly labelled demo weather.",
+  "error.nasa.short": "NASA POWER is unavailable",
+  "error.server.title": "Server problem",
+  "error.server.text": "The game server did not answer. Try again in a moment.",
+  "error.server.short": "the server did not answer",
+  "error.no-backend.title": "The game server is not running",
+  "error.no-backend.text": "The page could not find the game API. Start the server with “uvicorn app.main:app --port 8000” and open http://127.0.0.1:8000, then press Try again.",
+  "error.url": "Request: {{url}}",
+  "error.no-backend.short": "no game server",
+  "error.invalid.title": "Unexpected answer",
+  "error.invalid.text": "The server returned data the game could not read.",
+  "error.invalid.short": "unexpected answer",
+  "error.rejected.title": "Request rejected",
+  "error.rejected.text": "The server rejected the request. Check the farm settings.",
+  "error.rejected.short": "the server rejected the request",
+
+  "actions.retry": "Try again",
+  "actions.sampleData": "Play with demo data",
+  "actions.changeLocation": "Change farm",
+  "actions.loadFarm": "Load NASA POWER data",
+  "actions.refresh": "Reload data",
+  "actions.loadNasa": "Load NASA data",
+  "actions.levels": "All levels",
+  "actions.restartLevel": "Restart level",
+  "actions.resume": "Resume",
+  "actions.back": "Back",
+  "actions.backToReport": "Back to the report",
+  "actions.confirmGrow": "Grow season {{season}}",
+  "actions.export": "Export report (JSON)",
+  "actions.finishLevel": "Finish level",
+  "actions.inProgress": "Season in progress…",
+  "actions.levelOver": "Level finished",
+  "actions.loading": "Loading…",
+  "actions.next": "Next",
+  "actions.nextLevel": "Level {{n}}",
+  "actions.nextSeason": "Next season",
+  "actions.play": "Choose season",
+  "actions.replay": "Play again",
+  "actions.replayLevel": "Replay level",
+  "actions.seeResult": "See result",
+  "actions.skip": "Skip",
+  "actions.startFarming": "Start farming",
+  "actions.startLevel": "Start level",
+  "actions.whatIf": "Try your own What If",
+
+  "location.title": "Set up your farm",
+  "location.text": "Choose a real place and a growing period: they select the NASA POWER weather series. The soil type describes your virtual farm.",
+  "location.presetsTitle": "Ready-made regions",
+  "location.searchTitle": "Find a place",
+  "location.searchLabel": "City or place",
+  "location.searchPlaceholder": "e.g. Almaty, Kansas City…",
+  "location.search": "Search",
+  "location.manualTitle": "Or enter coordinates",
+  "location.latitude": "Latitude",
+  "location.longitude": "Longitude",
+  "location.use": "Use",
+  "location.manualHint": "Latitude −90…90, longitude −180…180 (decimal degrees).",
+  "location.invalid": "Check the numbers: latitude must be between −90 and 90, longitude between −180 and 180.",
+  "location.note": "NASA POWER gives <strong>regional grid-cell</strong> weather (about 50 km), not a measurement at your field. The place does <strong>not</strong> tell the game your soil type.",
+  "location.custom": "Farm at {{coords}}",
+  "location.noPlace": "No place chosen yet.",
+  "location.needPlace": "Choose a place.",
+  "location.needSoil": "Choose a soil type.",
+  "location.periodServer": "The server rejected the period: {{message}}",
+  "location.periodTitle": "Growing period",
+  "location.periodText": "Pick the calendar window of your season. The game replays it in real past years; it may cross the new year (southern hemisphere).",
+  "location.periodStart": "Sowing",
+  "location.periodEnd": "Harvest",
+  "location.month": "Month",
+  "location.day": "Day",
+  "location.periodDays": "{{days}} days.",
+  "location.periodDaysCross": "{{days}} days, crossing the new year.",
+  "location.period.invalid": "The period has an impossible date (29 February is not allowed).",
+  "location.period.empty": "The period is empty: sowing and harvest are the same day.",
+  "location.period.short": "The period is {{days}} days; it must be at least {{min}}.",
+  "location.period.long": "The period is {{days}} days; it can be at most {{max}}.",
+  "location.period.missing": "Choose the sowing and harvest dates.",
+  "location.soilTitle": "Soil of your virtual farm",
+  "location.soilText": "A game-model choice, not NASA data: the same rain soaks, drains and washes away differently on each soil.",
+  "location.tooShort": "Type at least 2 letters.",
+  "location.searching": "Searching “{{q}}”…",
+  "location.found": "Found {{n}} places.",
+  "location.none": "Nothing found for “{{q}}”.",
+  "location.err.offline": "You are offline: search is unavailable, but coordinates still work.",
+  "location.err.timeout": "Search timed out. Try again or enter coordinates.",
+  "location.err.nasa": "Search is unavailable. Enter coordinates instead.",
+  "location.err.server": "Search is unavailable. Enter coordinates instead.",
+  "location.err.no-backend": "Search needs the game server. Enter coordinates instead.",
+  "location.err.invalid": "Search returned unexpected data.",
+  "location.err.rejected": "Search rejected the query.",
+
+  "places.almaty": "Almaty region, Kazakhstan",
+  "places.almaty.note": "irrigated steppe, lowland cell",
+  "places.kansas": "Central Kansas, USA",
+  "places.kansas.note": "Great Plains",
+  "places.kherson": "Kherson region, Ukraine",
+  "places.kherson.note": "dry steppe",
+  "places.punjab": "Punjab, India",
+  "places.punjab.note": "monsoon (kharif) season",
+  "places.nile": "Nile Delta, Egypt",
+  "places.nile.note": "winter crops, desert climate",
+  "places.wagga": "Wagga Wagga, Australia",
+  "places.wagga.note": "southern winter crops",
+  "places.parana": "Paraná, Brazil",
+  "places.parana.note": "southern summer",
+  "places.nakuru": "Nakuru, Kenya",
+  "places.nakuru.note": "tropical highland, long rains",
+
+  "dir.N": "N",
+  "dir.S": "S",
+  "dir.E": "E",
+  "dir.W": "W",
+  "hemisphere.north": "Northern hemisphere",
+  "hemisphere.south": "Southern hemisphere",
+  "hemisphere.tropics": "tropics: no temperate seasons",
+
+  "soils.sandy.name": "Sandy",
+  "soils.sandy.desc": "Holds little water, drains fast; rain soaks in but nitrogen washes out; blows away in dry wind.",
+  "soils.loam.name": "Loam",
+  "soils.loam.desc": "Balanced: holds plenty of water and drains moderately; easily washed by runoff if bare.",
+  "soils.clay.name": "Clay",
+  "soils.clay.desc": "Holds the most water but lets it in slowly: downpours run off and the field gets waterlogged.",
+  "soilProps.holding": "Water store ({{mm}} mm)",
+  "soilProps.drainage": "Drainage speed",
+  "soilProps.infiltration": "Soaks in heavy rain",
+  "soilProps.erosion": "Erosion risk",
+
+  "levels.title": "Seven challenges",
+  "levels.intro": "Every level replays real seasons of your farm's window from NASA POWER ({{from}}–{{to}}). Choose the year in each level. Pass a level to unlock the next.",
+  "levels.demoPlace": "Demo farm (synthetic weather)",
+  "levels.fitAny": "Any of {{n}} seasons · e.g. {{years}}",
+  "levels.fitSome": "{{n}} fitting seasons · {{years}}",
+  "levels.fitNone": "No fitting season here — try another region",
+  "levels.seasonsCount": "{{n}} season(s)",
+  "levels.starsAria": "{{n}} of 3 stars",
+  "levels.best": "Best score {{score}}",
+  "levels.notPassed": "Not passed yet · {{score}}",
+  "levels.locked": "Locked",
+  "levels.unlockHint": "Pass level {{n}} to unlock.",
+  "levels.firstHarvest.name": "First harvest",
+  "levels.firstHarvest.short": "Learn to read the season's data and grow a decent crop.",
+  "levels.firstHarvest.story": "A fresh start: a reasonable budget, full water reserve and healthy soil. Read the NASA POWER data, choose a crop that fits the heat and rain, and bring in at least half of its potential.",
+  "levels.waterShortage.name": "Water shortage",
+  "levels.waterShortage.short": "A dry season and a small reservoir.",
+  "levels.waterShortage.story": "The reservoir holds only a little water and the season is dry compared with the other years of this place. Every pumped millimetre counts: keep the crop alive and leave some water in the reserve.",
+  "levels.depletedSoil.name": "Depleted soil",
+  "levels.depletedSoil.short": "Two seasons to rebuild a tired field.",
+  "levels.depletedSoil.story": "Years of wheat after wheat left little nitrogen and organic matter and plenty of erosion. Over two seasons, raise soil fertility while still harvesting a crop. Legumes and soil care are your tools.",
+  "levels.hotSeason.name": "Hot season",
+  "levels.hotSeason.short": "Many days above the heat threshold.",
+  "levels.hotSeason.story": "This season had many days with a maximum temperature above the game's heat threshold. Heat raises crop water demand and hurts sensitive crops at flowering. It is called anomalous only if it was hotter than the other years of this place.",
+  "levels.rainySeason.name": "Downpour season",
+  "levels.rainySeason.short": "Heavy rain, runoff and waterlogging.",
+  "levels.rainySeason.story": "Heavy downpours or a much wetter season than usual. Keep the soil in place, avoid drowning the roots and still harvest a crop.",
+  "levels.economicCrisis.name": "Economic crisis",
+  "levels.economicCrisis.short": "Low prices, high costs, two seasons.",
+  "levels.economicCrisis.story": "Crop prices are 20% lower and costs 15% higher. Stay solvent for two seasons and end with more money than you started with.",
+  "levels.climateChallenge.name": "Climate challenge",
+  "levels.climateChallenge.short": "Three real seasons in a row. Balance everything.",
+  "levels.climateChallenge.story": "Three consecutive real seasons at your farm. Keep yields up in every season, do not lose soil fertility and finish with at least your starting budget.",
+
+  "weatherType.any": "any weather",
+  "weatherType.dry": "dry season",
+  "weatherType.hot": "hot season",
+  "weatherType.wet": "downpours",
+  "weatherRule.any": "Any complete season fits this level.",
+  "weatherRule.dry": "The season must be dry: rainfall at most {{share}}% of this place's reference (the other years of the same window).",
+  "weatherRule.hot": "The season must have at least {{days}} days with T2M_MAX ≥ {{hot}} °C (a game threshold). 'Anomalous' is shown only after comparison with the other years of this place.",
+  "weatherRule.wet": "The season must have at least {{days}} days with ≥ {{heavy}} mm of rain, or at least {{share}}% of this place's reference rainfall.",
+
+  "brief.eyebrow": "Level {{n}} of {{total}}",
+  "brief.goal": "To pass",
+  "brief.stars": "Three stars",
+  "brief.starsText": "Yield ≥ {{yield}}% · water saving score ≥ {{water}} · soil fertility change ≥ {{soil}}. Each met criterion gives one star (only when the level is passed).",
+  "brief.weather": "Weather situation",
+  "brief.chooseYear": "Choose the season",
+  "brief.chooseStart": "Choose the first of {{n}} consecutive seasons",
+  "brief.noYears": "No complete season at this place fits this level. Try another region or growing period.",
+  "brief.andNext": "and the next {{n}} year(s)",
+  "brief.reference": "Compared with {{n}} other seasons of the same place and window ({{from}}–{{to}}).",
+  "brief.start": "Starting state",
+  "brief.previous": "Previous crops",
+  "brief.economy": "Market",
+  "brief.economyText": "prices {{price}}%, costs {{cost}}%",
+  "brief.loseLabel": "You lose if:",
+  "brief.soilLabel": "Your soil:",
+  "brief.demo": "Demo mode: the weather is synthetic and is not a record of any real place or year.",
+  "brief.hotShort": "{{n}} hot days",
+  "brief.heavyShort": "{{n}} downpours",
+
+  "anomaly.noReference": "no reference: no anomaly claims",
+  "anomaly.typical": "within the usual range",
+  "anomaly.hot": "more hot days than usual",
+  "anomaly.warm": "warmer than usual",
+  "anomaly.dry": "drier than usual",
+  "anomaly.wet": "wetter than usual",
+
+  "goal.avg_yield": "Average yield {{op}} {{value}}",
+  "goal.min_yield": "Every season's yield {{op}} {{value}}",
+  "goal.reserve_end": "Water reserve at the end {{op}} {{value}}",
+  "goal.fertility_delta": "Soil fertility change {{op}} {{value}}",
+  "goal.erosion_delta": "Erosion change {{op}} {{value}}",
+  "goal.n_leached": "Nitrogen washed out {{op}} {{value}}",
+  "goal.final_budget": "Budget at the end {{op}} {{value}}",
+  "lose.min_yield": "a season's yield falls below {{value}}",
+  "lose.bankrupt": "money runs out before the last season",
+  "lose.goals": "any goal is not met at the end",
+
+  "reject.weatherUnfit": "This season does not match the level's weather situation. Fitting seasons: {{years}}.",
+  "reject.yearUnavailable": "That season is not finished or not in the downloaded period (latest complete: {{latest}}). Try {{suggestion}}.",
+  "reject.incomplete": "NASA POWER has too many missing days in {{years}}. Try {{suggestion}}.",
+  "reject.invalidDecision": "The server did not accept the plan: {{list}}.",
+
+  "period.demoYear": "Demo year {{n}}",
+  "seasonName.spring": "Spring",
+  "seasonName.summer": "Summer",
+  "seasonName.autumn": "Autumn",
+  "seasonName.winter": "Winter",
+  "seasonName.tropical": "Tropical season",
+
+  "header.mission": "Level goal",
+  "header.help": "How to play",
+  "header.pause": "Pause the game",
+  "header.pauseShort": "Pause",
+  "game.levelTitle": "Level {{n}} · {{name}}",
+  "game.seasonCount": "Season {{n}} of {{total}} · {{season}}",
+
+  "decisions.title": "Your decisions",
+  "decisions.subtitle": "Read the NASA data, then plan the season",
+  "decisions.crop": "1 · Crop",
+  "decisions.cropGroup": "Crop",
+  "decisions.method": "2 · Irrigation system",
+  "decisions.methodGroup": "Irrigation system",
+  "decisions.intensity": "3 · Water use",
+  "decisions.intensityGroup": "Water use",
+  "decisions.care": "4 · Soil care",
+  "decisions.careGroup": "Soil care",
+  "decisions.cropNote": "heat damage above {{heat}} °C · needs {{gdd}} degree days",
+  "decisions.lastCrop": "last crop: {{crop}}",
+  "decisions.reserve": "reserve {{mm}} mm",
+  "decisions.waterNeed": "Water need {{n}} of 3",
+  "decisions.tagRepeat": "Same as last season",
+  "decisions.tagLegumeCredit": "Nitrogen from legume",
+  "decisions.missing": "Still to choose: {{list}}.",
+  "decisions.missing.crop": "crop",
+  "decisions.missing.method": "irrigation system",
+  "decisions.missing.intensity": "water use",
+  "decisions.missing.care": "soil care",
+  "decisions.error.budget": "Not enough money for this plan (the water cost is counted at its maximum).",
+  "decisions.error.reserve_empty": "The water reserve is empty: choose “No irrigation”.",
+  "decisions.error.level_over": "The level is over.",
+  "decisions.field.crop": "Crop",
+  "decisions.field.method": "Irrigation system",
+  "decisions.field.intensity": "Water use",
+  "decisions.field.care": "Soil care",
+
+  "crops.wheat.name": "Wheat",
+  "crops.wheat.tag": "Cool season",
+  "crops.maize.name": "Maize",
+  "crops.maize.tag": "High value, thirsty",
+  "crops.sorghum.name": "Sorghum",
+  "crops.sorghum.tag": "Heat tolerant",
+  "crops.chickpea.name": "Chickpea",
+  "crops.chickpea.tag": "Legume: fixes nitrogen",
+
+  "methods.flood.name": "Flood",
+  "methods.flood.desc": "Flooding loses a lot to deep drainage and runoff: it can wash nitrogen out and erode soil.",
+  "methods.sprinkler.name": "Sprinkler",
+  "methods.sprinkler.desc": "Sprinklers lose more water on hot, windy days and wet the leaves in humid weather.",
+  "methods.drip.name": "Drip",
+  "methods.drip.desc": "Drip puts water at the roots with the smallest losses, but the kit costs more.",
+  "methods.meta": "{{eff}}% reaches roots · {{cost}}",
+  "intensity.off.name": "None",
+  "intensity.off.desc": "No pumping.",
+  "intensity.low.name": "Low",
+  "intensity.low.desc": "Deficit irrigation: water only when the soil is quite dry, up to {{cap}} mm this season.",
+  "intensity.medium.name": "Medium",
+  "intensity.medium.desc": "Refill the root zone when half of its water is used, up to {{cap}} mm this season.",
+  "intensity.high.name": "High",
+  "intensity.high.desc": "Keep the soil wet and slightly overfill it, up to {{cap}} mm this season.",
+  "irrigation.hintChoose": "Choose how much water to use.",
+  "irrigation.hintNone": "No irrigation: the crop relies on rain and the water already stored in the soil.",
+  "care.none.name": "None",
+  "care.none.desc": "Conventional tillage, bare soil between plants",
+  "care.mulch.name": "Mulch",
+  "care.mulch.desc": "Straw cover: less evaporation and runoff, strong erosion protection",
+  "care.cover_crop.name": "Cover crop",
+  "care.cover_crop.desc": "Legume cover after harvest: +N and organic matter next season, uses some moisture",
+  "care.min_till.name": "Minimum tillage",
+  "care.min_till.desc": "Keeps residue and organic matter; slightly more weeds",
+  "care.drainage.name": "Drainage",
+  "care.drainage.desc": "Open drains: excess water leaves faster (helps on clay, rarely on sand)",
+  "care.free": "Free",
+  "describe.noIrrigation": "no irrigation",
+
+  "plan.seeds": "Seeds",
+  "plan.fixed": "Fixed farm costs",
+  "plan.care": "Soil care",
+  "plan.setup": "Irrigation kit",
+  "plan.water": "Pumping, up to {{mm}} mm",
+  "plan.total": "Season cost (max)",
+  "plan.budgetLeft": "Budget left (at least)",
+
+  "states.planning": "Ready to plant",
+  "states.growing": "Season in progress",
+  "states.healthy": "Healthy crop",
+  "states.drought": "Drought stress",
+  "states.heatstress": "Heat stress",
+  "states.overwater": "Too much water",
+  "states.frost": "Frost damage",
+  "states.immature": "Did not mature",
+  "states.lownutrients": "Short of nitrogen",
+  "states.disease": "Disease pressure",
+  "states.harvest": "Level passed",
+  "states.failed": "Level failed",
+  "weather.showers": "Mild · showers",
+  "weather.heat": "Hot · dry",
+  "weather.rain": "Wet · downpours",
+  "weather.clear": "Mostly clear",
+  "weather.cloudy": "Cloudy",
+
+  "field.aria": "Your farm field",
+  "field.condition": "Field condition",
+  "field.view": "Field view",
+  "field.farm": "Farm",
+  "field.ndvi": "Greenness (model)",
+  "field.ndviLegend": "Simulated greenness, not satellite NDVI",
+  "field.image": "Isometric view of your farm field",
+  "field.tank": "Water reserve tank",
+  "grow.day": "{{date}} · root-zone water {{m}}%",
+
+  "nasa.title": "NASA POWER",
+  "data.rain": "Rainfall",
+  "data.hotDays": "Days with T2M_MAX ≥ {{t}} °C",
+  "data.dry": "Longest dry spell",
+  "data.heavy": "Downpour days",
+  "data.temp": "Mean temperature",
+  "data.rh": "Humidity",
+  "data.wind": "Wind",
+  "data.solar": "Sunlight",
+  "data.et0": "Reference evapotranspiration",
+  "data.et0Source": "computed · {{method}}",
+  "data.unit.days": "days",
+  "data.vsReference": "usual {{value}}",
+  "data.noReference": "no reference",
+  "data.reference": "Average of the other years of this place and window",
+  "data.unavailable": "unavailable",
+  "data.windyDays": "{{n}} windy days",
+  "data.src.rain": "PRECTOTCORR, sum of daily values; downpour ≥ {{heavy}} mm/day",
+  "data.src.hot": "T2M_MAX · {{n}} days ≥ {{extreme}} °C",
+  "data.src.dry": "PRECTOTCORR: consecutive days below {{mm}} mm",
+  "data.src.heavy": "PRECTOTCORR ≥ {{mm}} mm/day",
+  "data.src.temp": "T2M · max {{max}} °C / min {{min}} °C · {{frost}} frost days (T2M_MIN < 0 °C)",
+  "insight.title": "How to read this",
+  "insight.thresholds": "Values are NASA POWER measurements summed or averaged over your season. Day counts use the game's thresholds (not universal agronomic norms). 'Usual' = the other years of the same place and window.",
+  "insight.gaps": "{{n}} missing daily values ({{params}}) were filled for the model; missing rain counts as 0 mm.",
+  "insight.unavailable": "{{params}} unavailable: mechanics using it are switched off; evapotranspiration uses {{method}}.",
+
+  "prov.title": "About this data",
+  "prov.source": "Source",
+  "prov.community": "community {{c}}",
+  "prov.timeStandard": "time standard {{ts}}",
+  "prov.point": "Grid point {{coords}}, cell elevation {{elev}} m",
+  "prov.fetched": "downloaded {{time}}",
+  "prov.stale": "expired copy (NASA POWER was unavailable)",
+  "prov.request": "Open the NASA POWER request",
+  "prov.years": "complete seasons {{from}}–{{to}}",
+  "prov.demo": "Demo: synthetic weather generated by the game. It is not NASA data and not a record of any real place or year.",
+  "status.live": "Live NASA data",
+  "status.cached": "Cached NASA data",
+  "status.stale": "Cached (expired) NASA data",
+  "status.demo": "Demo data",
+  "status.liveHint": "Downloaded from NASA POWER for this request ({{time}}).",
+  "status.cachedHint": "NASA POWER data from the server cache, downloaded {{time}}.",
+  "status.demoHint": "Synthetic weather chosen by the player; not NASA data.",
+
+  "soil.title": "Field · {{soil}}",
+  "soil.fertility": "Fertility",
+  "soil.moisture": "Soil water",
+  "soil.n": "Nitrogen, kg/ha",
+  "soil.om": "Organic matter",
+  "soil.erosion": "Erosion",
+  "soil.note": "Game-model values. Root-zone water store: {{taw}} mm.",
+  "soil.history": "Crops:",
+  "soil.noHistory": "none yet",
+
+  "meters.aria": "Farm status",
+  "meters.yield": "Last yield",
+  "meters.fertility": "Soil fertility",
+  "meters.moisture": "Soil water",
+  "meters.water": "Water reserve",
+  "meters.budget": "Budget",
+  "unit.mm": "mm",
+  "unit.kg": "kg",
+  "unit.ms": "m/s",
+  "unit.mj": "MJ/m²/day",
+  "units.mm": "{{n}} mm",
+  "units.kgN": "{{n}} kg N/ha",
+  "units.pp": "pp",
+
+  "report.eyebrow": "Level {{n}} · season {{season}} of {{total}} · {{year}}",
+  "report.yield": "Yield",
+  "report.harvest": "{{t}} t harvested",
+  "report.modelNote": "Result of the game model, not a yield forecast.",
+  "report.profit": "Profit",
+  "report.nasaData": "NASA POWER data",
+  "report.dataLine": "{{rain}} mm of rain, {{hot}} days ≥ {{t}} °C, longest dry spell {{dry}} days, {{heavy}} downpours, mean {{temp}} °C.",
+  "report.decision": "Your decision",
+  "report.happened": "What the model computed",
+  "report.resultLine": "The crop used {{use}} of the {{demand}} mm it needed (pumped {{pumped}} mm). Yield {{yield}}% of its game potential.",
+  "report.why": "Why — each line says where it comes from",
+  "report.money": "Revenue {{revenue}} · costs {{cost}} (reserved up to {{max}}).",
+  "report.limits": "Model limitations",
+  "report.gridNote": "NASA POWER describes a regional grid cell, not your exact field.",
+  "chart.aria": "Daily rain, irrigation and root-zone water through the season",
+  "chart.maturity": "maturity",
+  "chart.rain": "Rain (NASA)",
+  "chart.irrigation": "Irrigation (your decision)",
+  "chart.moisture": "Root-zone water (model)",
+  "category.nasa": "NASA data",
+  "category.player": "Your decision",
+  "category.computed": "Model",
+  "category.assumption": "Assumption",
+
+  "reason.data.rain": "NASA POWER recorded {{rain}} mm of rain in {{days}} days, {{heavy}} downpour days and a longest dry spell of {{dry_spell}} days.",
+  "reason.data.heat": "NASA POWER recorded {{hot_days}} days with T2M_MAX ≥ {{threshold}} °C (mean daily maximum {{tmax}} °C).",
+  "reason.model.demand": "Weather demanded {{et0}} mm of reference evapotranspiration ({{method}}); your crop needed about {{demand}} mm.",
+  "reason.yield.water": "The crop got {{use}} of the {{demand}} mm it needed ({{pct}}%). Your {{soil}} soil stores {{taw}} mm in the root zone.",
+  "reason.yield.heat": "Days above {{threshold}} °C, mostly at flowering, cost yield ({{dd}} degree-days of heat).",
+  "reason.yield.frost": "{{days}} days below {{threshold}} °C during growth damaged the crop.",
+  "reason.yield.waterlog": "The {{soil}} soil stayed waterlogged for {{days}} days: roots lacked oxygen.",
+  "reason.yield.maturity": "The season was too short or cool: {{gdd}} of the {{need}} degree days the crop needs.",
+  "reason.yield.nitrogen": "Only {{available}} of {{need}} kg N/ha was available ({{leached}} kg washed out).",
+  "reason.yield.rotation": "Same crop family as last season ({{prev}}): more pests and diseases.",
+  "reason.yield.disease": "Humid air (mean RH {{rh}}%) favoured leaf diseases.",
+  "reason.yield.light": "Low sunlight ({{solar}} MJ/m²/day) limited growth.",
+  "reason.yield.weeds": "Minimum tillage leaves a few more weeds (game assumption).",
+  "reason.soil.legume_before": "{{prev}} last season left extra nitrogen in the soil.",
+  "reason.irrigation.summary": "You pumped {{pumped}} mm in {{events}} waterings; {{net}} mm reached the roots and {{useful}} mm was actually used by the crop.",
+  "reason.irrigation.wasted": "{{wasted}} of {{pumped}} mm pumped did not help the crop: it evaporated, drained away or was not needed.",
+  "reason.irrigation.reserve_out": "The water reserve ran out on day {{day}}.",
+  "reason.irrigation.none_dry": "No irrigation while the soil dried out.",
+  "reason.soil.runoff": "{{mm}} mm ran off the {{soil}} soil during heavy rain.",
+  "reason.soil.leached": "{{kg}} kg N/ha washed below the roots with {{drain}} mm of drainage.",
+  "reason.soil.erosion": "Erosion index rose by {{value}} (runoff and wind on unprotected soil).",
+  "reason.soil.fixation": "The legume left {{kg}} kg N/ha for the next crop.",
+  "reason.care.mulch": "Mulch reduced evaporation and runoff and protected the soil.",
+  "reason.care.cover_crop": "The cover crop will add nitrogen and organic matter for next season but uses some moisture.",
+  "reason.care.min_till": "Minimum tillage kept residue and slowed organic-matter loss.",
+  "reason.care.drainage": "Drains removed excess water faster.",
+  "reason.assume.gaps": "{{count}} missing NASA daily values were filled (game assumption).",
+  "reason.assume.unavailable": "{{params}} unavailable; evapotranspiration used {{method}}.",
+
+  "whatif.autoTitle": "What If",
+  "whatif.autoNote": "Each alternative changes ONE decision and replays the same season with the same starting field and the same NASA weather.",
+  "whatif.criterion.water_saver": "Saves water, yield within 5 pp",
+  "whatif.criterion.water_efficiency": "More crop from the same water",
+  "whatif.criterion.yield_gain": "Higher yield",
+  "whatif.criterion.soil_gain": "Better soil, yield within 10 pp",
+  "whatif.criterion.profit_gain": "More profit",
+  "whatif.change": "{{field}}: {{from}} → {{to}}",
+  "whatif.drivers": "Main differences: {{list}}.",
+  "whatif.none": "No single change clearly improved water, yield, soil or profit this season.",
+  "whatif.noBest": "Each alternative is better only by its own criterion — no strategy is best for every goal.",
+  "whatif.eyebrow": "Same field, same NASA weather",
+  "whatif.title": "What if you had changed one thing?",
+  "whatif.rule": "Change one decision; everything else stays as you played it.",
+  "whatif.yours": "Your decision",
+  "whatif.alternative": "Alternative",
+  "whatif.fieldSel": "Decision to change",
+  "whatif.valueSel": "New choice",
+  "whatif.metric": "Result",
+  "whatif.yield": "Yield",
+  "whatif.profit": "Profit",
+  "whatif.pumped": "Water pumped",
+  "whatif.useful": "Water used by the crop",
+  "whatif.reserve": "Reserve after",
+  "whatif.fertility": "Fertility after",
+  "whatif.erosion": "Erosion",
+  "whatif.leached": "Nitrogen washed out",
+  "whatif.state": "Field",
+  "whatif.unaffordable": "This alternative was not possible with your budget or water reserve.",
+  "whatif.note": "The model is simplified; the comparison shows how the rules respond, not a real-world guarantee.",
+  "factor.water": "water supply",
+  "factor.heat": "heat",
+  "factor.frost": "frost",
+  "factor.waterlog": "waterlogging",
+  "factor.maturity": "season length",
+  "factor.nitrogen": "nitrogen",
+  "factor.rotation": "rotation",
+  "factor.disease": "disease",
+  "factor.light": "sunlight",
+  "factor.weeds": "weeds",
+
+  "banner.win.title": "Level passed!",
+  "banner.win.text": "Every goal met. See your stars and what the data taught you.",
+  "banner.fail.title": "Level not passed",
+  "banner.fail.goals": "Not every goal was met. Review the seasons and try another plan.",
+  "banner.fail.bankrupt": "The money ran out before the last season.",
+  "banner.fail.crop_failure": "A season's harvest failed almost completely.",
+
+  "result.eyebrow": "Level {{n}} result",
+  "result.passed": "Passed",
+  "result.failed": "Not passed",
+  "result.passedText": "Level passed · stars: {{stars}} of 3.",
+  "result.fail.goals": "Some goals were not met.",
+  "result.fail.bankrupt": "Bankrupt: not enough money to plant the next season.",
+  "result.fail.crop_failure": "Crop failure: a season's yield fell below the limit.",
+  "result.goals": "Goals",
+  "result.categories": "Star criteria",
+  "result.cat.yield": "Yield",
+  "result.cat.water": "Water saving",
+  "result.cat.soil": "Soil health",
+  "result.cat.target": "target {{value}}",
+  "result.cat.soilTarget": "change {{delta}} · target {{value}}",
+  "result.starsNote": "Water saving = 60 × (water used by the crop ÷ water pumped) + 40 × share of the starting reserve kept.",
+  "result.totals": "Money and water",
+  "result.profit": "Profit",
+  "result.revenue": "Revenue",
+  "result.finalBudget": "Final budget",
+  "result.avgYield": "Average yield",
+  "result.pumped": "Water pumped",
+  "result.useful": "Used by crops",
+  "result.reserveEnd": "Reserve left",
+  "result.soil": "Soil changes",
+  "result.leached": "N washed out",
+  "result.seasons": "Seasons",
+  "result.seasonLine": "{{rain}} mm rain · {{hot}} hot days · pumped {{pumped}} mm · profit {{profit}}",
+  "result.recommendations": "Try next time",
+  "result.data": "Data used",
+  "rec.drought": "The crop ran short of water. Check the rainfall and dry-spell numbers first: pick sorghum or chickpea, or plan irrigation.",
+  "rec.irrigationWaste": "Much of the pumped water did not help. Irrigate less when the soil and rain already cover the demand.",
+  "rec.flood": "Flooding loses the most water and washes nitrogen out. Drip gets more crop from each millimetre.",
+  "rec.leaching": "Nitrogen washed out with drainage. Avoid over-irrigation, especially on sandy soil.",
+  "rec.erosion": "Soil washed or blew away. Mulch, cover crops and minimum tillage protect it.",
+  "rec.rotation": "Growing the same crop family again invited pests. Rotate with a legume.",
+  "rec.nitrogen": "The crop was short of nitrogen. Plant chickpea or a cover crop before a hungry cereal.",
+  "rec.heat": "Heat hurt the crop at flowering. Choose a heat-tolerant crop when many days pass the threshold.",
+  "rec.waterlog": "The field stayed waterlogged. On clay, drainage and less irrigation help.",
+  "rec.maturity": "The crop did not mature in time. Match the crop to the season's warmth and length.",
+  "rec.costs": "Costs were higher than income. Cheaper seeds and less pumping can keep you solvent.",
+  "rec.keep": "Well balanced! Try a harder season or another soil type.",
+
+  "farm.open": "Farm report",
+  "farm.eyebrow": "Whole game",
+  "farm.completed": "{{n}} of {{total}} levels passed",
+  "farm.weak.yield": "Your weakest area is yield: read heat and rain before picking crops.",
+  "farm.weak.water": "Your weakest area is water saving: pump only what the crop can use.",
+  "farm.weak.soil": "Your weakest area is soil health: use legumes and soil protection.",
+  "farm.totalProfit": "Total profit (best runs)",
+  "farm.totalPumped": "Water pumped (best runs)",
+  "farm.levels": "Best result per level",
+  "farm.level": "Level",
+  "farm.stars": "Stars",
+  "farm.data": "Data",
+  "farm.lesson.1": "NASA POWER daily rain, heat and dry spells tell you how thirsty a season will be — read them before choosing a crop.",
+  "farm.lesson.2": "The same rain acts differently on sand (drains, leaches) and clay (runs off, waterlogs).",
+  "farm.lesson.3": "Drip and deficit irrigation get more crop from each millimetre than flooding.",
+  "farm.lesson.4": "Legumes and cover crops rebuild nitrogen; repeating one crop invites pests.",
+  "farm.lesson.5": "A season is 'anomalous' only compared with other years of the same place and period.",
+  "farm.reset": "Reset progress",
+  "farm.resetConfirm": "Delete all saved level results?",
+  "final.lessons": "What the data taught you",
+  "final.rank.master": "Master Navigator",
+  "final.rank.skilled": "Skilled Navigator",
+  "final.rank.growing": "Growing Navigator",
+  "final.rank.rookie": "Rookie Navigator",
+
+  "toast.staleCache": "NASA POWER is unavailable: showing an expired copy downloaded {{time}}.",
+  "toast.nextSeason": "Season {{n}}: {{season}}",
+  "toast.turnFailed": "The season was not played: {{reason}}. Your plan is kept — try again.",
+  "toast.offline": "You are offline. The game needs its server to play a season.",
+  "toast.online": "Back online.",
+  "confirm.leave": "Leave this level? Its progress will be lost.",
+
+  "pause.title": "Paused",
+  "pause.text": "The season is on hold. Satellites keep orbiting.",
+
+  "tut.step": "How to play · {{n}} of {{total}}",
+  "tut.welcome.title": "Welcome, Navigator!",
+  "tut.welcome.body": "You run a virtual farm on real historical weather. Choose a place, a growing period and your soil, then play seven challenges.",
+  "tut.welcome.chip1": "Real NASA POWER data",
+  "tut.welcome.chip2": "7 levels",
+  "tut.welcome.chip3": "3 soils",
+  "tut.sky.title": "Read the data first",
+  "tut.sky.body": "The NASA POWER panel shows the season's measured rain, heat, dry spells, downpours, humidity, wind and sunlight, and how they compare with other years of the same place.",
+  "tut.decide.title": "Make four decisions",
+  "tut.decide.body": "Pick a crop, an irrigation system, how much water to use and how to care for the soil. Each choice has a cost, an effect and an explanation.",
+  "tut.decide.chip1": "Crop",
+  "tut.decide.chip2": "Irrigation system",
+  "tut.decide.chip3": "Water use",
+  "tut.decide.chip4": "Soil care",
+  "tut.watch.title": "See why, then ask What If",
+  "tut.watch.body": "The server simulates the season day by day. The report separates NASA data, your decisions, model results and assumptions, and shows what one different decision would have changed.",
+  "tut.watch.chip1": "Yield · water · soil stars",
+  "tut.watch.chip2": "What If",
+  "tut.watch.chip3": "Not a forecast"
+}
+</script>
+<script type="application/json" id="i18n-ru">
+{
+  "meta.title": "Farm Navigator",
+  "meta.description": "Обучающая фермерская стратегия на реальных исторических погодных данных NASA POWER.",
+  "brand.tagline": "На данных NASA POWER",
+
+  "language.label": "Язык",
+  "language.system": "Системный",
+  "language.systemResolved": "Системный ({{lang}})",
+  "language.english": "English",
+  "language.russian": "Русский",
+  "language.button": "Язык: {{value}}",
+  "theme.label": "Тема",
+  "theme.system": "Системная",
+  "theme.systemResolved": "Системная ({{theme}})",
+  "theme.light": "Светлая",
+  "theme.dark": "Тёмная",
+  "theme.button": "Тема: {{value}}",
+  "menu.open": "Открыть меню настроек",
+  "menu.close": "Закрыть меню настроек",
+
+  "loading.connect": "Подключаемся к игровому серверу…",
+  "loading.connectText": "Загружаем правила игры.",
+  "loading.title": "Настраиваемся на NASA POWER…",
+  "loading.text": "Загружаем дневную погоду за 20 лет: {{place}}, {{period}}.",
+  "loading.demoTitle": "Готовим демо-погоду…",
+  "loading.demoText": "Синтетическая погода с пометкой «Демо»: это не данные NASA и не {{place}}.",
+  "loading.progress": "Загрузка данных",
+  "loading.step.temperature": "Температура воздуха",
+  "loading.step.rainfall": "Осадки",
+  "loading.step.air": "Влажность и ветер",
+  "loading.step.solar": "Солнечная радиация",
+
+  "error.code": "Ошибка: {{kind}} · {{status}}",
+  "error.offline.title": "Нет подключения к интернету",
+  "error.offline.text": "Сезоны моделирует игровой сервер. Подключитесь к сети и попробуйте снова.",
+  "error.offline.short": "нет подключения",
+  "error.timeout.title": "NASA POWER отвечает слишком долго",
+  "error.timeout.text": "Запрос данных не уложился во время после нескольких попыток. Попробуйте снова или сыграйте на демо-погоде с явной пометкой.",
+  "error.timeout.short": "превышено время ожидания",
+  "error.nasa.title": "NASA POWER недоступен",
+  "error.nasa.text": "Серверу не удалось загрузить данные NASA POWER, а сохранённой копии для этой фермы нет. Попробуйте позже или сыграйте на демо-погоде с явной пометкой.",
+  "error.nasa.short": "NASA POWER недоступен",
+  "error.server.title": "Проблема на сервере",
+  "error.server.text": "Игровой сервер не ответил. Попробуйте ещё раз через минуту.",
+  "error.server.short": "сервер не ответил",
+  "error.no-backend.title": "Игровой сервер не запущен",
+  "error.no-backend.text": "Страница не нашла API игры. Запустите сервер командой «uvicorn app.main:app --port 8000» и откройте http://127.0.0.1:8000, затем нажмите «Попробовать снова».",
+  "error.url": "Запрос: {{url}}",
+  "error.no-backend.short": "нет игрового сервера",
+  "error.invalid.title": "Непонятный ответ",
+  "error.invalid.text": "Сервер вернул данные, которые игра не смогла прочитать.",
+  "error.invalid.short": "непонятный ответ",
+  "error.rejected.title": "Запрос отклонён",
+  "error.rejected.text": "Сервер отклонил запрос. Проверьте настройки фермы.",
+  "error.rejected.short": "сервер отклонил запрос",
+
+  "actions.retry": "Попробовать снова",
+  "actions.sampleData": "Играть на демо-данных",
+  "actions.changeLocation": "Изменить ферму",
+  "actions.loadFarm": "Загрузить данные NASA POWER",
+  "actions.refresh": "Обновить данные",
+  "actions.loadNasa": "Загрузить данные NASA",
+  "actions.levels": "Все уровни",
+  "actions.restartLevel": "Начать уровень заново",
+  "actions.resume": "Продолжить",
+  "actions.back": "Назад",
+  "actions.backToReport": "Вернуться к отчёту",
+  "actions.confirmGrow": "Вырастить сезон {{season}}",
+  "actions.export": "Экспорт отчёта (JSON)",
+  "actions.finishLevel": "Завершить уровень",
+  "actions.inProgress": "Сезон идёт…",
+  "actions.levelOver": "Уровень завершён",
+  "actions.loading": "Загрузка…",
+  "actions.next": "Далее",
+  "actions.nextLevel": "Уровень {{n}}",
+  "actions.nextSeason": "Следующий сезон",
+  "actions.play": "Выбрать сезон",
+  "actions.replay": "Сыграть снова",
+  "actions.replayLevel": "Перепройти уровень",
+  "actions.seeResult": "Смотреть итог",
+  "actions.skip": "Пропустить",
+  "actions.startFarming": "Начать",
+  "actions.startLevel": "Начать уровень",
+  "actions.whatIf": "Свой вариант «Что если»",
+
+  "location.title": "Настройте ферму",
+  "location.text": "Выберите реальное место и период выращивания: они определяют ряд погоды NASA POWER. Тип почвы описывает вашу виртуальную ферму.",
+  "location.presetsTitle": "Готовые регионы",
+  "location.searchTitle": "Найти место",
+  "location.searchLabel": "Город или место",
+  "location.searchPlaceholder": "например, Алматы, Канзас-Сити…",
+  "location.search": "Найти",
+  "location.manualTitle": "Или введите координаты",
+  "location.latitude": "Широта",
+  "location.longitude": "Долгота",
+  "location.use": "Выбрать",
+  "location.manualHint": "Широта −90…90, долгота −180…180 (десятичные градусы).",
+  "location.invalid": "Проверьте числа: широта должна быть от −90 до 90, долгота — от −180 до 180.",
+  "location.note": "NASA POWER даёт погоду <strong>для ячейки региональной сетки</strong> (около 50 км), а не измерение на вашем поле. Место <strong>не</strong> определяет тип почвы в игре.",
+  "location.custom": "Ферма в точке {{coords}}",
+  "location.noPlace": "Место ещё не выбрано.",
+  "location.needPlace": "Выберите место.",
+  "location.needSoil": "Выберите тип почвы.",
+  "location.periodServer": "Сервер отклонил период: {{message}}",
+  "location.periodTitle": "Период выращивания",
+  "location.periodText": "Укажите календарное окно сезона. Игра воспроизводит его в реальные прошлые годы; окно может переходить через Новый год (южное полушарие).",
+  "location.periodStart": "Посев",
+  "location.periodEnd": "Уборка",
+  "location.month": "Месяц",
+  "location.day": "День",
+  "location.periodDays": "{{days}} дн.",
+  "location.periodDaysCross": "{{days}} дн., с переходом через Новый год.",
+  "location.period.invalid": "В периоде невозможная дата (29 февраля не допускается).",
+  "location.period.empty": "Период пустой: посев и уборка в один день.",
+  "location.period.short": "Период — {{days}} дн.; нужно не меньше {{min}}.",
+  "location.period.long": "Период — {{days}} дн.; можно не больше {{max}}.",
+  "location.period.missing": "Укажите даты посева и уборки.",
+  "location.soilTitle": "Почва вашей виртуальной фермы",
+  "location.soilText": "Это выбор игровой модели, а не данные NASA: один и тот же дождь по-разному впитывается, дренируется и смывает каждую почву.",
+  "location.tooShort": "Введите хотя бы 2 буквы.",
+  "location.searching": "Ищем «{{q}}»…",
+  "location.found": "Найдено мест: {{n}}.",
+  "location.none": "По запросу «{{q}}» ничего не найдено.",
+  "location.err.offline": "Нет подключения: поиск недоступен, но координаты работают.",
+  "location.err.timeout": "Поиск не уложился во время. Повторите или введите координаты.",
+  "location.err.nasa": "Поиск недоступен. Введите координаты.",
+  "location.err.server": "Поиск недоступен. Введите координаты.",
+  "location.err.no-backend": "Для поиска нужен игровой сервер. Введите координаты.",
+  "location.err.invalid": "Поиск вернул непонятные данные.",
+  "location.err.rejected": "Поиск отклонил запрос.",
+
+  "places.almaty": "Алматинская область, Казахстан",
+  "places.almaty.note": "орошаемая степь, равнинная ячейка",
+  "places.kansas": "Центральный Канзас, США",
+  "places.kansas.note": "Великие равнины",
+  "places.kherson": "Херсонская область, Украина",
+  "places.kherson.note": "сухая степь",
+  "places.punjab": "Пенджаб, Индия",
+  "places.punjab.note": "муссонный сезон (хариф)",
+  "places.nile": "Дельта Нила, Египет",
+  "places.nile.note": "зимние культуры, пустынный климат",
+  "places.wagga": "Уогга-Уогга, Австралия",
+  "places.wagga.note": "зимние культуры юга",
+  "places.parana": "Парана, Бразилия",
+  "places.parana.note": "южное лето",
+  "places.nakuru": "Накуру, Кения",
+  "places.nakuru.note": "тропическое высокогорье, долгие дожди",
+
+  "dir.N": "с. ш.",
+  "dir.S": "ю. ш.",
+  "dir.E": "в. д.",
+  "dir.W": "з. д.",
+  "hemisphere.north": "Северное полушарие",
+  "hemisphere.south": "Южное полушарие",
+  "hemisphere.tropics": "тропики: сезонов умеренного пояса нет",
+
+  "soils.sandy.name": "Песчаная",
+  "soils.sandy.desc": "Держит мало воды и быстро её пропускает: дождь впитывается, но азот вымывается; в сухой ветер почву выдувает.",
+  "soils.loam.name": "Суглинистая",
+  "soils.loam.desc": "Сбалансированная: хорошо держит воду и умеренно её отдаёт; голая почва легко смывается стоком.",
+  "soils.clay.name": "Глинистая",
+  "soils.clay.desc": "Держит больше всего воды, но медленно её впитывает: ливни стекают, поле переувлажняется.",
+  "soilProps.holding": "Запас воды ({{mm}} мм)",
+  "soilProps.drainage": "Скорость дренажа",
+  "soilProps.infiltration": "Впитывание ливня",
+  "soilProps.erosion": "Риск эрозии",
+
+  "levels.title": "Семь испытаний",
+  "levels.intro": "Каждый уровень воспроизводит реальные сезоны вашего окна по данным NASA POWER ({{from}}–{{to}}). Год вы выбираете в уровне. Пройдите уровень, чтобы открыть следующий.",
+  "levels.demoPlace": "Демо-ферма (синтетическая погода)",
+  "levels.fitAny": "Любой из {{n}} сезонов · например, {{years}}",
+  "levels.fitSome": "Подходящих сезонов: {{n}} · {{years}}",
+  "levels.fitNone": "Здесь нет подходящего сезона — выберите другой регион",
+  "levels.seasonsCount": "Сезонов: {{n}}",
+  "levels.starsAria": "{{n}} из 3 звёзд",
+  "levels.best": "Лучший счёт {{score}}",
+  "levels.notPassed": "Ещё не пройден · {{score}}",
+  "levels.locked": "Закрыт",
+  "levels.unlockHint": "Пройдите уровень {{n}}, чтобы открыть.",
+  "levels.firstHarvest.name": "Первый урожай",
+  "levels.firstHarvest.short": "Научитесь читать данные сезона и вырастите достойный урожай.",
+  "levels.firstHarvest.story": "Новое начало: нормальный бюджет, полный запас воды и здоровая почва. Изучите данные NASA POWER, выберите культуру по жаре и осадкам и получите хотя бы половину её потенциала.",
+  "levels.waterShortage.name": "Нехватка воды",
+  "levels.waterShortage.short": "Сухой сезон и маленький водоём.",
+  "levels.waterShortage.story": "В водоёме мало воды, а сезон суше, чем другие годы в этом месте. Каждый закачанный миллиметр на счету: сохраните посевы и оставьте немного воды в запасе.",
+  "levels.depletedSoil.name": "Истощённая почва",
+  "levels.depletedSoil.short": "Два сезона, чтобы восстановить уставшее поле.",
+  "levels.depletedSoil.story": "Годы пшеницы по пшенице оставили мало азота и органики и сильную эрозию. За два сезона повысьте плодородие, не оставаясь без урожая. Ваши инструменты — бобовые и уход за почвой.",
+  "levels.hotSeason.name": "Жаркий сезон",
+  "levels.hotSeason.short": "Много дней выше порога жары.",
+  "levels.hotSeason.story": "В этом сезоне было много дней с максимумом температуры выше игрового порога жары. Жара повышает потребность в воде и вредит чувствительным культурам при цветении. «Аномальным» сезон называется, только если он жарче других лет в этом месте.",
+  "levels.rainySeason.name": "Сезон ливней",
+  "levels.rainySeason.short": "Сильные дожди, сток и переувлажнение.",
+  "levels.rainySeason.story": "Сильные ливни или сезон намного влажнее обычного. Удержите почву, не затопите корни и всё же соберите урожай.",
+  "levels.economicCrisis.name": "Экономический кризис",
+  "levels.economicCrisis.short": "Низкие цены, высокие затраты, два сезона.",
+  "levels.economicCrisis.story": "Цены на урожай на 20% ниже, затраты на 15% выше. Продержитесь два сезона и закончите с большей суммой, чем начали.",
+  "levels.climateChallenge.name": "Климатический вызов",
+  "levels.climateChallenge.short": "Три реальных сезона подряд. Баланс во всём.",
+  "levels.climateChallenge.story": "Три последовательных реальных сезона на вашей ферме. Держите урожай в каждом сезоне, не теряйте плодородие и закончите хотя бы со стартовым бюджетом.",
+
+  "weatherType.any": "любая погода",
+  "weatherType.dry": "сухой сезон",
+  "weatherType.hot": "жаркий сезон",
+  "weatherType.wet": "ливни",
+  "weatherRule.any": "Подходит любой полный сезон.",
+  "weatherRule.dry": "Сезон должен быть сухим: осадков не больше {{share}}% от ориентира этого места (другие годы того же окна).",
+  "weatherRule.hot": "В сезоне должно быть не меньше {{days}} дней с T2M_MAX ≥ {{hot}} °C (игровой порог). Пометка «аномальный» ставится только после сравнения с другими годами этого места.",
+  "weatherRule.wet": "В сезоне должно быть не меньше {{days}} дней с осадками ≥ {{heavy}} мм или не меньше {{share}}% от ориентира осадков этого места.",
+
+  "brief.eyebrow": "Уровень {{n}} из {{total}}",
+  "brief.goal": "Чтобы пройти",
+  "brief.stars": "Три звезды",
+  "brief.starsText": "Урожай ≥ {{yield}}% · экономия воды ≥ {{water}} · изменение плодородия ≥ {{soil}}. Каждый выполненный критерий даёт звезду (только если уровень пройден).",
+  "brief.weather": "Погодная ситуация",
+  "brief.chooseYear": "Выберите сезон",
+  "brief.chooseStart": "Выберите первый из {{n}} сезонов подряд",
+  "brief.noYears": "В этом месте нет полного сезона, подходящего уровню. Выберите другой регион или период.",
+  "brief.andNext": "и следующие годы: {{n}}",
+  "brief.reference": "Сравнение с другими сезонами того же места и окна: {{n}} ({{from}}–{{to}}).",
+  "brief.start": "Стартовое состояние",
+  "brief.previous": "Предыдущие культуры",
+  "brief.economy": "Рынок",
+  "brief.economyText": "цены {{price}}%, затраты {{cost}}%",
+  "brief.loseLabel": "Поражение, если:",
+  "brief.soilLabel": "Ваша почва:",
+  "brief.demo": "Демо-режим: погода синтетическая и не описывает никакое реальное место или год.",
+  "brief.hotShort": "жарких дней: {{n}}",
+  "brief.heavyShort": "ливней: {{n}}",
+
+  "anomaly.noReference": "нет ориентира: без выводов об аномалиях",
+  "anomaly.typical": "в обычных пределах",
+  "anomaly.hot": "жарких дней больше обычного",
+  "anomaly.warm": "теплее обычного",
+  "anomaly.dry": "суше обычного",
+  "anomaly.wet": "влажнее обычного",
+
+  "goal.avg_yield": "Средний урожай {{op}} {{value}}",
+  "goal.min_yield": "Урожай каждого сезона {{op}} {{value}}",
+  "goal.reserve_end": "Запас воды в конце {{op}} {{value}}",
+  "goal.fertility_delta": "Изменение плодородия {{op}} {{value}}",
+  "goal.erosion_delta": "Изменение эрозии {{op}} {{value}}",
+  "goal.n_leached": "Вымыто азота {{op}} {{value}}",
+  "goal.final_budget": "Бюджет в конце {{op}} {{value}}",
+  "lose.min_yield": "урожай сезона ниже {{value}}",
+  "lose.bankrupt": "деньги кончились до последнего сезона",
+  "lose.goals": "к концу не выполнена какая-либо цель",
+
+  "reject.weatherUnfit": "Этот сезон не соответствует погодной ситуации уровня. Подходят: {{years}}.",
+  "reject.yearUnavailable": "Этот сезон ещё не закончился или вне загруженного периода (последний полный: {{latest}}). Попробуйте {{suggestion}}.",
+  "reject.incomplete": "В NASA POWER слишком много пропусков за {{years}}. Попробуйте {{suggestion}}.",
+  "reject.invalidDecision": "Сервер не принял план: {{list}}.",
+
+  "period.demoYear": "Демо-год {{n}}",
+  "seasonName.spring": "Весна",
+  "seasonName.summer": "Лето",
+  "seasonName.autumn": "Осень",
+  "seasonName.winter": "Зима",
+  "seasonName.tropical": "Тропический сезон",
+
+  "header.mission": "Цель уровня",
+  "header.help": "Как играть",
+  "header.pause": "Поставить игру на паузу",
+  "header.pauseShort": "Пауза",
+  "game.levelTitle": "Уровень {{n}} · {{name}}",
+  "game.seasonCount": "Сезон {{n}} из {{total}} · {{season}}",
+
+  "decisions.title": "Ваши решения",
+  "decisions.subtitle": "Изучите данные NASA и спланируйте сезон",
+  "decisions.crop": "1 · Культура",
+  "decisions.cropGroup": "Культура",
+  "decisions.method": "2 · Система полива",
+  "decisions.methodGroup": "Система полива",
+  "decisions.intensity": "3 · Расход воды",
+  "decisions.intensityGroup": "Расход воды",
+  "decisions.care": "4 · Уход за почвой",
+  "decisions.careGroup": "Уход за почвой",
+  "decisions.cropNote": "страдает от жары выше {{heat}} °C · нужно {{gdd}} градусо-дней",
+  "decisions.lastCrop": "прошлая культура: {{crop}}",
+  "decisions.reserve": "запас {{mm}} мм",
+  "decisions.waterNeed": "Потребность в воде: {{n}} из 3",
+  "decisions.tagRepeat": "Как в прошлом сезоне",
+  "decisions.tagLegumeCredit": "Азот от бобовых",
+  "decisions.missing": "Ещё нужно выбрать: {{list}}.",
+  "decisions.missing.crop": "культуру",
+  "decisions.missing.method": "систему полива",
+  "decisions.missing.intensity": "расход воды",
+  "decisions.missing.care": "уход за почвой",
+  "decisions.error.budget": "На этот план не хватает денег (вода считается по максимуму).",
+  "decisions.error.reserve_empty": "Запас воды пуст: выберите «Без полива».",
+  "decisions.error.level_over": "Уровень завершён.",
+  "decisions.field.crop": "Культура",
+  "decisions.field.method": "Система полива",
+  "decisions.field.intensity": "Расход воды",
+  "decisions.field.care": "Уход за почвой",
+
+  "crops.wheat.name": "Пшеница",
+  "crops.wheat.tag": "Любит прохладу",
+  "crops.maize.name": "Кукуруза",
+  "crops.maize.tag": "Дорогая, влаголюбивая",
+  "crops.sorghum.name": "Сорго",
+  "crops.sorghum.tag": "Жаростойкое",
+  "crops.chickpea.name": "Нут",
+  "crops.chickpea.tag": "Бобовое: фиксирует азот",
+
+  "methods.flood.name": "Затопление",
+  "methods.flood.desc": "При затоплении много воды уходит в глубину и в сток: вымывается азот, смывается почва.",
+  "methods.sprinkler.name": "Дождевание",
+  "methods.sprinkler.desc": "Дождеватели теряют больше воды в жару и ветер и мочат листья во влажную погоду.",
+  "methods.drip.name": "Капельный",
+  "methods.drip.desc": "Капельный полив подаёт воду к корням с наименьшими потерями, но оборудование дороже.",
+  "methods.meta": "до корней доходит {{eff}}% · {{cost}}",
+  "intensity.off.name": "Нет",
+  "intensity.off.desc": "Без полива.",
+  "intensity.low.name": "Мало",
+  "intensity.low.desc": "Дефицитный полив: только когда почва заметно пересохла, до {{cap}} мм за сезон.",
+  "intensity.medium.name": "Средне",
+  "intensity.medium.desc": "Восполнять корнеобитаемый слой, когда израсходована половина воды, до {{cap}} мм за сезон.",
+  "intensity.high.name": "Много",
+  "intensity.high.desc": "Держать почву влажной с небольшим переливом, до {{cap}} мм за сезон.",
+  "irrigation.hintChoose": "Выберите, сколько воды использовать.",
+  "irrigation.hintNone": "Без полива: культура живёт на осадках и воде, уже накопленной в почве.",
+  "care.none.name": "Нет",
+  "care.none.desc": "Обычная обработка, голая почва между растениями",
+  "care.mulch.name": "Мульча",
+  "care.mulch.desc": "Солома на поверхности: меньше испарения и стока, сильная защита от эрозии",
+  "care.cover_crop.name": "Покровная культура",
+  "care.cover_crop.desc": "Бобовый покров после уборки: +N и органика к следующему сезону, но тратит часть влаги",
+  "care.min_till.name": "Минимальная обработка",
+  "care.min_till.desc": "Сохраняет растительные остатки и органику; немного больше сорняков",
+  "care.drainage.name": "Дренаж",
+  "care.drainage.desc": "Открытые дрены: лишняя вода уходит быстрее (помогает на глине, редко на песке)",
+  "care.free": "Бесплатно",
+  "describe.noIrrigation": "без полива",
+
+  "plan.seeds": "Семена",
+  "plan.fixed": "Постоянные затраты фермы",
+  "plan.care": "Уход за почвой",
+  "plan.setup": "Оборудование полива",
+  "plan.water": "Подача воды, до {{mm}} мм",
+  "plan.total": "Затраты за сезон (макс.)",
+  "plan.budgetLeft": "Останется в бюджете (минимум)",
+
+  "states.planning": "Готово к посеву",
+  "states.growing": "Сезон идёт",
+  "states.healthy": "Здоровые посевы",
+  "states.drought": "Засуха",
+  "states.heatstress": "Тепловой стресс",
+  "states.overwater": "Избыток воды",
+  "states.frost": "Повреждение заморозками",
+  "states.immature": "Не успело созреть",
+  "states.lownutrients": "Нехватка азота",
+  "states.disease": "Болезни",
+  "states.harvest": "Уровень пройден",
+  "states.failed": "Уровень не пройден",
+  "weather.showers": "Мягко · дожди",
+  "weather.heat": "Жарко · сухо",
+  "weather.rain": "Сыро · ливни",
+  "weather.clear": "В основном ясно",
+  "weather.cloudy": "Облачно",
+
+  "field.aria": "Ваше поле",
+  "field.condition": "Состояние поля",
+  "field.view": "Вид поля",
+  "field.farm": "Ферма",
+  "field.ndvi": "Зелёность (модель)",
+  "field.ndviLegend": "Смоделированная зелёность, не спутниковый NDVI",
+  "field.image": "Изометрический вид вашего поля",
+  "field.tank": "Резервуар с запасом воды",
+  "grow.day": "{{date}} · вода в корнеобитаемом слое {{m}}%",
+
+  "nasa.title": "NASA POWER",
+  "data.rain": "Осадки",
+  "data.hotDays": "Дней с T2M_MAX ≥ {{t}} °C",
+  "data.dry": "Самый долгий сухой период",
+  "data.heavy": "Дней с ливнем",
+  "data.temp": "Средняя температура",
+  "data.rh": "Влажность",
+  "data.wind": "Ветер",
+  "data.solar": "Солнечный свет",
+  "data.et0": "Эталонная эвапотранспирация",
+  "data.et0Source": "вычислено · {{method}}",
+  "data.unit.days": "дн.",
+  "data.vsReference": "обычно {{value}}",
+  "data.noReference": "нет ориентира",
+  "data.reference": "Среднее по другим годам этого места и окна",
+  "data.unavailable": "недоступно",
+  "data.windyDays": "ветреных дней: {{n}}",
+  "data.src.rain": "PRECTOTCORR, сумма дневных значений; ливень ≥ {{heavy}} мм/день",
+  "data.src.hot": "T2M_MAX · дней ≥ {{extreme}} °C: {{n}}",
+  "data.src.dry": "PRECTOTCORR: дни подряд ниже {{mm}} мм",
+  "data.src.heavy": "PRECTOTCORR ≥ {{mm}} мм/день",
+  "data.src.temp": "T2M · макс. {{max}} °C / мин. {{min}} °C · дней с заморозком (T2M_MIN < 0 °C): {{frost}}",
+  "insight.title": "Как читать",
+  "insight.thresholds": "Это измерения NASA POWER, просуммированные или усреднённые за ваш сезон. Дни считаются по игровым порогам (это не универсальные агрономические нормы). «Обычно» — другие годы того же места и окна.",
+  "insight.gaps": "Пропущенных дневных значений: {{n}} ({{params}}); для модели они заполнены, пропущенный дождь считается как 0 мм.",
+  "insight.unavailable": "{{params}} недоступно: зависящие механики отключены; эвапотранспирация считается методом {{method}}.",
+
+  "prov.title": "Об этих данных",
+  "prov.source": "Источник",
+  "prov.community": "сообщество {{c}}",
+  "prov.timeStandard": "стандарт времени {{ts}}",
+  "prov.point": "Точка сетки {{coords}}, высота ячейки {{elev}} м",
+  "prov.fetched": "загружено {{time}}",
+  "prov.stale": "устаревшая копия (NASA POWER был недоступен)",
+  "prov.request": "Открыть запрос к NASA POWER",
+  "prov.years": "полные сезоны {{from}}–{{to}}",
+  "prov.demo": "Демо: синтетическая погода, созданная игрой. Это не данные NASA и не запись о каком-либо реальном месте или годе.",
+  "status.live": "Данные NASA онлайн",
+  "status.cached": "Данные NASA из кэша",
+  "status.stale": "Данные NASA из кэша (устарели)",
+  "status.demo": "Демо-данные",
+  "status.liveHint": "Загружено из NASA POWER для этого запроса ({{time}}).",
+  "status.cachedHint": "Данные NASA POWER из кэша сервера, загружены {{time}}.",
+  "status.demoHint": "Синтетическая погода, выбранная игроком; это не данные NASA.",
+
+  "soil.title": "Поле · {{soil}}",
+  "soil.fertility": "Плодородие",
+  "soil.moisture": "Вода в почве",
+  "soil.n": "Азот, кг/га",
+  "soil.om": "Органическое вещество",
+  "soil.erosion": "Эрозия",
+  "soil.note": "Значения игровой модели. Запас воды корнеобитаемого слоя: {{taw}} мм.",
+  "soil.history": "Культуры:",
+  "soil.noHistory": "пока нет",
+
+  "meters.aria": "Состояние фермы",
+  "meters.yield": "Последний урожай",
+  "meters.fertility": "Плодородие почвы",
+  "meters.moisture": "Вода в почве",
+  "meters.water": "Запас воды",
+  "meters.budget": "Бюджет",
+  "unit.mm": "мм",
+  "unit.kg": "кг",
+  "unit.ms": "м/с",
+  "unit.mj": "МДж/м²/день",
+  "units.mm": "{{n}} мм",
+  "units.kgN": "{{n}} кг N/га",
+  "units.pp": "п. п.",
+
+  "report.eyebrow": "Уровень {{n}} · сезон {{season}} из {{total}} · {{year}}",
+  "report.yield": "Урожай",
+  "report.harvest": "собрано {{t}} т",
+  "report.modelNote": "Результат игровой модели, а не прогноз урожая.",
+  "report.profit": "Прибыль",
+  "report.nasaData": "Данные NASA POWER",
+  "report.dataLine": "Осадков {{rain}} мм, дней ≥ {{t}} °C: {{hot}}, самый долгий сухой период {{dry}} дн., ливней: {{heavy}}, в среднем {{temp}} °C.",
+  "report.decision": "Ваше решение",
+  "report.happened": "Что вычислила модель",
+  "report.resultLine": "Культура использовала {{use}} из нужных {{demand}} мм (закачано {{pumped}} мм). Урожай {{yield}}% от игрового потенциала.",
+  "report.why": "Почему — у каждой строки указан источник",
+  "report.money": "Выручка {{revenue}} · затраты {{cost}} (зарезервировано до {{max}}).",
+  "report.limits": "Ограничения модели",
+  "report.gridNote": "NASA POWER описывает ячейку региональной сетки, а не именно ваше поле.",
+  "chart.aria": "Дневные осадки, полив и вода в корнеобитаемом слое за сезон",
+  "chart.maturity": "созревание",
+  "chart.rain": "Осадки (NASA)",
+  "chart.irrigation": "Полив (ваше решение)",
+  "chart.moisture": "Вода в корнеобитаемом слое (модель)",
+  "category.nasa": "Данные NASA",
+  "category.player": "Ваше решение",
+  "category.computed": "Модель",
+  "category.assumption": "Допущение",
+
+  "reason.data.rain": "NASA POWER зафиксировал {{rain}} мм осадков за {{days}} дн., дней с ливнем: {{heavy}}, самый долгий сухой период — {{dry_spell}} дн.",
+  "reason.data.heat": "NASA POWER зафиксировал {{hot_days}} дн. с T2M_MAX ≥ {{threshold}} °C (средний дневной максимум {{tmax}} °C).",
+  "reason.model.demand": "Погода задала {{et0}} мм эталонной эвапотранспирации ({{method}}); вашей культуре нужно было около {{demand}} мм.",
+  "reason.yield.water": "Культура получила {{use}} из нужных {{demand}} мм ({{pct}}%). Ваша почва ({{soil}}) держит {{taw}} мм в корнеобитаемом слое.",
+  "reason.yield.heat": "Дни выше {{threshold}} °C, особенно при цветении, снизили урожай (градусо-дней жары: {{dd}}).",
+  "reason.yield.frost": "{{days}} дн. ниже {{threshold}} °C во время роста повредили посевы.",
+  "reason.yield.waterlog": "Почва ({{soil}}) была переувлажнена {{days}} дн.: корням не хватало кислорода.",
+  "reason.yield.maturity": "Сезон слишком короткий или прохладный: {{gdd}} из {{need}} нужных культуре градусо-дней.",
+  "reason.yield.nitrogen": "Доступно только {{available}} из {{need}} кг N/га (вымыто {{leached}} кг).",
+  "reason.yield.rotation": "То же семейство культур, что и в прошлом сезоне ({{prev}}): больше вредителей и болезней.",
+  "reason.yield.disease": "Влажный воздух (средняя RH {{rh}}%) способствовал болезням листьев.",
+  "reason.yield.light": "Мало солнечного света ({{solar}} МДж/м²/день) ограничило рост.",
+  "reason.yield.weeds": "При минимальной обработке сорняков чуть больше (допущение игры).",
+  "reason.soil.legume_before": "{{prev}} в прошлом сезоне оставил в почве дополнительный азот.",
+  "reason.irrigation.summary": "Вы закачали {{pumped}} мм за {{events}} поливов; до корней дошло {{net}} мм, культура реально использовала {{useful}} мм.",
+  "reason.irrigation.wasted": "{{wasted}} из {{pumped}} мм закачанной воды не помогли культуре: испарились, ушли вглубь или были не нужны.",
+  "reason.irrigation.reserve_out": "Запас воды закончился на {{day}}-й день.",
+  "reason.irrigation.none_dry": "Полива не было, пока почва пересыхала.",
+  "reason.soil.runoff": "{{mm}} мм стекло с поверхности почвы ({{soil}}) во время ливней.",
+  "reason.soil.leached": "{{kg}} кг N/га ушло ниже корней с {{drain}} мм дренажа.",
+  "reason.soil.erosion": "Индекс эрозии вырос на {{value}} (сток и ветер на незащищённой почве).",
+  "reason.soil.fixation": "Бобовая культура оставила следующей {{kg}} кг N/га.",
+  "reason.care.mulch": "Мульча уменьшила испарение и сток и защитила почву.",
+  "reason.care.cover_crop": "Покровная культура добавит азот и органику к следующему сезону, но расходует часть влаги.",
+  "reason.care.min_till": "Минимальная обработка сохранила остатки и замедлила потерю органики.",
+  "reason.care.drainage": "Дрены быстрее отвели лишнюю воду.",
+  "reason.assume.gaps": "Заполнено пропущенных дневных значений NASA: {{count}} (допущение игры).",
+  "reason.assume.unavailable": "{{params}} недоступно; эвапотранспирация посчитана методом {{method}}.",
+
+  "whatif.autoTitle": "Что если",
+  "whatif.autoNote": "Каждая альтернатива меняет ОДНО решение и заново проигрывает тот же сезон с тем же исходным полем и той же погодой NASA.",
+  "whatif.criterion.water_saver": "Экономит воду, урожай в пределах 5 п. п.",
+  "whatif.criterion.water_efficiency": "Больше урожая с той же воды",
+  "whatif.criterion.yield_gain": "Выше урожай",
+  "whatif.criterion.soil_gain": "Лучше почва, урожай в пределах 10 п. п.",
+  "whatif.criterion.profit_gain": "Больше прибыли",
+  "whatif.change": "{{field}}: {{from}} → {{to}}",
+  "whatif.drivers": "Главные различия: {{list}}.",
+  "whatif.none": "В этом сезоне ни одна одиночная замена не улучшила заметно воду, урожай, почву или прибыль.",
+  "whatif.noBest": "Каждая альтернатива лучше только по своему критерию — стратегии, лучшей по всем целям, нет.",
+  "whatif.eyebrow": "То же поле, та же погода NASA",
+  "whatif.title": "Что если бы вы изменили одно решение?",
+  "whatif.rule": "Измените одно решение; всё остальное останется как в вашей игре.",
+  "whatif.yours": "Ваше решение",
+  "whatif.alternative": "Альтернатива",
+  "whatif.fieldSel": "Что изменить",
+  "whatif.valueSel": "Новый выбор",
+  "whatif.metric": "Результат",
+  "whatif.yield": "Урожай",
+  "whatif.profit": "Прибыль",
+  "whatif.pumped": "Закачано воды",
+  "whatif.useful": "Использовано культурой",
+  "whatif.reserve": "Запас после",
+  "whatif.fertility": "Плодородие после",
+  "whatif.erosion": "Эрозия",
+  "whatif.leached": "Вымыто азота",
+  "whatif.state": "Поле",
+  "whatif.unaffordable": "Эта альтернатива была невозможна при вашем бюджете или запасе воды.",
+  "whatif.note": "Модель упрощена: сравнение показывает, как реагируют правила игры, а не гарантирует результат в реальности.",
+  "factor.water": "обеспеченность водой",
+  "factor.heat": "жара",
+  "factor.frost": "заморозки",
+  "factor.waterlog": "переувлажнение",
+  "factor.maturity": "длина сезона",
+  "factor.nitrogen": "азот",
+  "factor.rotation": "севооборот",
+  "factor.disease": "болезни",
+  "factor.light": "солнечный свет",
+  "factor.weeds": "сорняки",
+
+  "banner.win.title": "Уровень пройден!",
+  "banner.win.text": "Все цели выполнены. Посмотрите звёзды и выводы из данных.",
+  "banner.fail.title": "Уровень не пройден",
+  "banner.fail.goals": "Не все цели выполнены. Разберите сезоны и попробуйте другой план.",
+  "banner.fail.bankrupt": "Деньги кончились до последнего сезона.",
+  "banner.fail.crop_failure": "Урожай одного из сезонов почти полностью погиб.",
+
+  "result.eyebrow": "Итог уровня {{n}}",
+  "result.passed": "Пройден",
+  "result.failed": "Не пройден",
+  "result.passedText": "Уровень пройден · звёзд: {{stars}} из 3.",
+  "result.fail.goals": "Некоторые цели не выполнены.",
+  "result.fail.bankrupt": "Банкротство: не хватает денег на посев следующего сезона.",
+  "result.fail.crop_failure": "Гибель урожая: урожай сезона ниже допустимого.",
+  "result.goals": "Цели",
+  "result.categories": "Критерии звёзд",
+  "result.cat.yield": "Урожай",
+  "result.cat.water": "Экономия воды",
+  "result.cat.soil": "Здоровье почвы",
+  "result.cat.target": "цель {{value}}",
+  "result.cat.soilTarget": "изменение {{delta}} · цель {{value}}",
+  "result.starsNote": "Экономия воды = 60 × (вода, использованная культурой ÷ закачанная вода) + 40 × доля сохранённого стартового запаса.",
+  "result.totals": "Деньги и вода",
+  "result.profit": "Прибыль",
+  "result.revenue": "Выручка",
+  "result.finalBudget": "Итоговый бюджет",
+  "result.avgYield": "Средний урожай",
+  "result.pumped": "Закачано воды",
+  "result.useful": "Использовано культурами",
+  "result.reserveEnd": "Остаток запаса",
+  "result.soil": "Изменения почвы",
+  "result.leached": "Вымыто N",
+  "result.seasons": "Сезоны",
+  "result.seasonLine": "осадков {{rain}} мм · жарких дней {{hot}} · закачано {{pumped}} мм · прибыль {{profit}}",
+  "result.recommendations": "В следующий раз",
+  "result.data": "Использованные данные",
+  "rec.drought": "Культуре не хватило воды. Сначала смотрите на осадки и сухие периоды: выбирайте сорго или нут либо планируйте полив.",
+  "rec.irrigationWaste": "Большая часть закачанной воды не помогла. Поливайте меньше, когда почва и дожди уже покрывают потребность.",
+  "rec.flood": "Затопление теряет больше всего воды и вымывает азот. Капельный полив даёт больше урожая с каждого миллиметра.",
+  "rec.leaching": "Азот вымылся с дренажем. Не переливайте, особенно на песчаной почве.",
+  "rec.erosion": "Почву смыло или выдуло. Мульча, покровные культуры и минимальная обработка её защищают.",
+  "rec.rotation": "Повтор того же семейства культур привлёк вредителей. Чередуйте с бобовыми.",
+  "rec.nitrogen": "Культуре не хватило азота. Посейте нут или покровную культуру перед требовательным злаком.",
+  "rec.heat": "Жара повредила посевы при цветении. Когда много дней выше порога, выбирайте жаростойкую культуру.",
+  "rec.waterlog": "Поле было переувлажнено. На глине помогают дренаж и меньший полив.",
+  "rec.maturity": "Культура не успела созреть. Подбирайте культуру по теплу и длине сезона.",
+  "rec.costs": "Затраты превысили доход. Дешёвые семена и меньше подачи воды помогут остаться платёжеспособным.",
+  "rec.keep": "Хороший баланс! Попробуйте более сложный сезон или другую почву.",
+
+  "farm.open": "Отчёт по ферме",
+  "farm.eyebrow": "Вся игра",
+  "farm.completed": "Пройдено уровней: {{n}} из {{total}}",
+  "farm.weak.yield": "Самое слабое место — урожай: смотрите на жару и осадки до выбора культуры.",
+  "farm.weak.water": "Самое слабое место — экономия воды: подавайте столько, сколько культура может использовать.",
+  "farm.weak.soil": "Самое слабое место — здоровье почвы: используйте бобовые и защиту почвы.",
+  "farm.totalProfit": "Общая прибыль (лучшие попытки)",
+  "farm.totalPumped": "Закачано воды (лучшие попытки)",
+  "farm.levels": "Лучший результат по уровням",
+  "farm.level": "Уровень",
+  "farm.stars": "Звёзды",
+  "farm.data": "Данные",
+  "farm.lesson.1": "Дневные осадки, жара и сухие периоды NASA POWER показывают, насколько сезон будет требовательным к воде, — смотрите на них до выбора культуры.",
+  "farm.lesson.2": "Один и тот же дождь по-разному действует на песок (дренаж, вымывание) и глину (сток, переувлажнение).",
+  "farm.lesson.3": "Капельный и дефицитный полив дают больше урожая с каждого миллиметра, чем затопление.",
+  "farm.lesson.4": "Бобовые и покровные культуры восстанавливают азот; повтор одной культуры привлекает вредителей.",
+  "farm.lesson.5": "Сезон «аномальный» только в сравнении с другими годами того же места и периода.",
+  "farm.reset": "Сбросить прогресс",
+  "farm.resetConfirm": "Удалить все сохранённые результаты уровней?",
+  "final.lessons": "Чему научили данные",
+  "final.rank.master": "Навигатор-мастер",
+  "final.rank.skilled": "Опытный навигатор",
+  "final.rank.growing": "Растущий навигатор",
+  "final.rank.rookie": "Навигатор-новичок",
+
+  "toast.staleCache": "NASA POWER недоступен: показана устаревшая копия, загруженная {{time}}.",
+  "toast.nextSeason": "Сезон {{n}}: {{season}}",
+  "toast.turnFailed": "Сезон не сыгран: {{reason}}. План сохранён — попробуйте снова.",
+  "toast.offline": "Нет подключения. Чтобы сыграть сезон, нужен игровой сервер.",
+  "toast.online": "Подключение восстановлено.",
+  "confirm.leave": "Выйти из уровня? Прогресс уровня будет потерян.",
+
+  "pause.title": "Пауза",
+  "pause.text": "Сезон приостановлен. Спутники продолжают свой путь по орбите.",
+
+  "tut.step": "Как играть · {{n}} из {{total}}",
+  "tut.welcome.title": "Добро пожаловать, навигатор!",
+  "tut.welcome.body": "Вы управляете виртуальной фермой на реальной исторической погоде. Выберите место, период выращивания и почву, затем пройдите семь испытаний.",
+  "tut.welcome.chip1": "Реальные данные NASA POWER",
+  "tut.welcome.chip2": "7 уровней",
+  "tut.welcome.chip3": "3 почвы",
+  "tut.sky.title": "Сначала — данные",
+  "tut.sky.body": "Панель NASA POWER показывает измеренные за сезон осадки, жару, сухие периоды, ливни, влажность, ветер и солнце и сравнивает их с другими годами того же места.",
+  "tut.decide.title": "Примите четыре решения",
+  "tut.decide.body": "Выберите культуру, систему полива, расход воды и уход за почвой. У каждого решения есть цена, эффект и объяснение.",
+  "tut.decide.chip1": "Культура",
+  "tut.decide.chip2": "Система полива",
+  "tut.decide.chip3": "Расход воды",
+  "tut.decide.chip4": "Уход за почвой",
+  "tut.watch.title": "Разберитесь почему и спросите «Что если»",
+  "tut.watch.body": "Сервер моделирует сезон по дням. Отчёт разделяет данные NASA, ваши решения, расчёты модели и допущения и показывает, что изменило бы одно другое решение.",
+  "tut.watch.chip1": "Звёзды: урожай · вода · почва",
+  "tut.watch.chip2": "Что если",
+  "tut.watch.chip3": "Не прогноз"
+}
+</script>
+
+<script src="js/rules.js"></script>
+<script src="js/nasa-client.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
